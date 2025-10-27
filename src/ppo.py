@@ -56,6 +56,7 @@ class PPO:
 
         while total_steps < self.batch_size:
             state_t = torch.tensor(state, dtype=torch.float32, device=self.device).view(1, -1) 
+            state_t = state_t / 255.0 # for Silu normalization
             with torch.no_grad(): # Use the network for prediction only, not training.
                 action, logp, value = self.ac.act(state_t)
             next_state, reward, terminated, truncated, _ = self.env.step(action.item())

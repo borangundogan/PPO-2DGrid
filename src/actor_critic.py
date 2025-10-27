@@ -4,25 +4,27 @@ import torch.nn as nn
 
 # ---------- MLP policy + value in one module ----------
 class ActorCritic(nn.Module):
-    def __init__(self, obs_dim: int, act_dim: int = 4, hidden_dim: int = 64):
+    def __init__(self, obs_dim: int, act_dim: int = 4, hidden_dim: int = 64, p_drop: float = 0.1):
         super().__init__()
 
         # Actor network (policy)
         self.actor = nn.Sequential(
             nn.Linear(obs_dim, hidden_dim),
-            nn.Tanh(),
+            nn.ReLU(),
+            nn.Dropout(p=p_drop),
             nn.Linear(hidden_dim, hidden_dim),
-            nn.Tanh(),
+            nn.ReLU(),
+            nn.Dropout(p=p_drop),
             nn.Linear(hidden_dim, act_dim),
-            nn.Softmax(dim=-1)
+            nn.Softmax(dim=-1),
         )
 
-        # Critic network (state value)
+        # Critic (Value function)
         self.critic = nn.Sequential(
             nn.Linear(obs_dim, hidden_dim),
-            nn.Tanh(),
+            nn.ReLU(),
             nn.Linear(hidden_dim, hidden_dim),
-            nn.Tanh(),
+            nn.ReLU(),
             nn.Linear(hidden_dim, 1)
         )
 
