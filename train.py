@@ -40,6 +40,7 @@ def parse_args():
     parser.add_argument("--ckpt_dir", type=str, default="checkpoints")
     parser.add_argument("--visual_eval", action="store_true", help="Render agent visually after training")
     parser.add_argument("--print_interval", type=int, default=1000, help="Console print frequency (in steps)")
+    parser.add_argument("--run_name", type=str, default=None, help="Optional custom name for this run")
     return parser.parse_args()
 
 
@@ -55,6 +56,7 @@ def evaluate_policy(agent, env, episodes=3):
         while not done:
             with torch.no_grad():
                 obs_t = torch.tensor(obs, dtype=torch.float32, device=agent.device).view(1, -1)
+                obs_t = obs_t / 255.0 # # normalize the input observations !
                 action, _, _ = agent.ac.act(obs_t)
             obs, reward, terminated, truncated, _ = env.step(action.item())
             total_reward += reward
@@ -64,7 +66,7 @@ def evaluate_policy(agent, env, episodes=3):
 
 
 def visualize_agent(agent, env_name="MiniGrid-Empty-8x8-v0", model_path=None, episodes=1):
-    print("\nStarting visual evaluation 🟩")
+    print("\nStarting visual evaluation")
     env = gym.make(env_name, render_mode="human")
     env = FullyObsWrapper(env)
     env = RGBImgPartialObsWrapper(env)
@@ -109,10 +111,12 @@ def train_minigrid(args):
     env = FullyObsWrapper(env)
     env = RGBImgPartialObsWrapper(env)
     env = ImgObsWrapper(env)
+    # env = FlattenObservation(env)  
 
     sample_obs, _ = env.reset()
     obs_dim = int(np.prod(sample_obs.shape))
-    print(f"Observation shape: {sample_obs.shape}")
+    print(f"Observation shape: {obs_dim}")
+    print(f"Sample obs shape: {obs_dim}, min={sample_obs.min()}, max={sample_obs.max()}")
 
     # PPO agent
     agent = PPO(
@@ -129,14 +133,24 @@ def train_minigrid(args):
         device=device,
     )
 
-    os.makedirs(args.log_dir, exist_ok=True)
-    log_path = os.path.join(args.log_dir, f"{args.env_name}_training.csv")
+    # Unique timestamp for this run
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    run_name = args.run_name or "default"
+    run_id = f"{args.env_name}_{run_name}_{timestamp}"
+
+    # Create subdirectories for this run
+    log_subdir = os.path.join(args.log_dir, run_id)
+    ckpt_subdir = os.path.join(args.ckpt_dir, run_id)
+    os.makedirs(log_subdir, exist_ok=True)
+    os.makedirs(ckpt_subdir, exist_ok=True)
+
+    # File paths
+    log_path = os.path.join(log_subdir, "training.csv")
+    ckpt_path = os.path.join(ckpt_subdir, "ppo_model.pth")
+
     log_file = open(log_path, "w", newline="")
     writer = csv.writer(log_file)
     writer.writerow(["step", "avg_reward", "time_min"])
-
-    os.makedirs(args.ckpt_dir, exist_ok=True)
-    ckpt_path = os.path.join(args.ckpt_dir, f"ppo_{args.env_name}.pth")
 
     step_count = 0
     episode_rewards = []
@@ -144,18 +158,16 @@ def train_minigrid(args):
 
     print(f"Training started on {device} for {args.total_steps:,} total steps")
     print(f"Environment: {args.env_name}")
+    print(f"Run name: {run_id}")
     print("============================================================================================")
 
-    # --------------------------
-    # TRAINING LOOP
-    # --------------------------
+
     while step_count < args.total_steps:
-        # Collect rollouts
         agent.collect_rollouts()
         agent.update()
         step_count += agent.batch_size
 
-        # Evaluate and log every update
+        # Evaluate and log
         eval_rewards = evaluate_policy(agent, env, episodes=args.eval_episodes)
         avg_r = np.mean(eval_rewards)
         episode_rewards.append(avg_r)
@@ -164,16 +176,14 @@ def train_minigrid(args):
         writer.writerow([step_count, round(avg_r, 3), round(elapsed_min, 2)])
         log_file.flush()
 
-        # Print every 'print_interval' steps
         if step_count % args.print_interval == 0 or step_count >= args.total_steps:
             print(f"[Steps: {step_count:>7}] | Avg reward: {avg_r:.3f} | Time: {elapsed_min:.2f} min")
 
-        # Save model periodically
         if step_count % args.save_interval == 0 or step_count >= args.total_steps:
             torch.save(agent.ac.state_dict(), ckpt_path)
-            print(f"💾 Model checkpoint saved at step {step_count} -> {ckpt_path}")
+            print(f"Model checkpoint saved at step {step_count} -> {ckpt_path}")
 
-    # Close resources
+    # Cleanup
     log_file.close()
     env.close()
 
@@ -198,15 +208,13 @@ def train_minigrid(args):
         plt.grid(True, linestyle="--", alpha=0.6)
         plt.legend()
         plt.tight_layout()
-        plt.savefig(f"{args.log_dir}/{args.env_name}_plot.png")
-        print(f"📈 Plot saved to: {args.log_dir}/{args.env_name}_plot.png")
+        plot_path = os.path.join(log_subdir, "reward_plot.png")
+        plt.savefig(plot_path)
+        print(f"Plot saved to: {plot_path}")
         plt.show()
     except Exception as e:
         print(f"Plotting skipped due to error: {e}")
 
-    # --------------------------
-    # Visual evaluation
-    # --------------------------
     if args.visual_eval:
         visualize_agent(agent, env_name=args.env_name, model_path=ckpt_path, episodes=2)
 
