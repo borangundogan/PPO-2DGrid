@@ -164,9 +164,7 @@ def train_minigrid(args):
 
 
     while step_count < args.total_steps:
-        print("Collecting rollouts...")
         agent.collect_rollouts()
-        print("Updating PPO...")
         agent.update()
         step_count += agent.batch_size
 

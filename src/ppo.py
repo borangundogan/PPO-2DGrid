@@ -107,6 +107,10 @@ class PPO:
 
         N = states.shape[0]
         idxs = np.arange(N)
+            # --- Metrics for monitoring ---
+        total_pi_loss, total_v_loss, total_entropy = 0.0, 0.0, 0.0
+        n_batches = 0
+        
         for _ in range(self.update_epochs):
             np.random.shuffle(idxs)
             # split random mini batches
@@ -128,6 +132,19 @@ class PPO:
                 loss.backward()
                 nn.utils.clip_grad_norm_(self.ac.parameters(), 0.5)
                 self.optimizer.step()
+            
+                total_pi_loss += policy_loss.item()
+                total_v_loss += value_loss.item()
+                total_entropy += entropy.mean().item()
+                n_batches += 1
+
+        # --- Averages for readability ---
+        avg_pi = total_pi_loss / n_batches
+        avg_v = total_v_loss / n_batches
+        avg_ent = total_entropy / n_batches
+
+        print(f"   PPO update | π_loss: {avg_pi:.4f} | V_loss: {avg_v:.4f} | Entropy: {avg_ent:.4f}")
+
 
     def train(self, total_steps=100_000):
         steps_done = 0

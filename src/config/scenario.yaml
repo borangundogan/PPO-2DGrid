@@ -4,12 +4,12 @@ difficulties:
   easy:
     env_id: MiniGrid-Empty-8x8-v0
     params:
-      render_mode: none
+      render_mode: rgb_array
   medium:
     env_id: MiniGrid-DoorKey-8x8-v0
     params:
-      render_mode: none
+      render_mode: rgb_array
   hard:
     env_id: MiniGrid-MultiRoom-N6-v0
     params:
-      render_mode: none
+      render_mode: rgb_array
