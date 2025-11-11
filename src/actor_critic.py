@@ -7,7 +7,7 @@ class ActorCritic(nn.Module):
     def __init__(self, obs_dim: int, act_dim: int = 4, hidden_dim: int = 64, p_drop: float = 0.1):
         super().__init__()
 
-        # Actor network (policy)
+        # Actor network (policy) # ELU , GELU
         self.actor = nn.Sequential(
             nn.Linear(obs_dim, hidden_dim),
             nn.ReLU(),
