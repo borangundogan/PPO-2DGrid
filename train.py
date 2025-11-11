@@ -15,13 +15,14 @@ import matplotlib.pyplot as plt
 from src.ppo import PPO
 from src.utils import get_device
 
+from src.scenario_creator.scenario_creator import ScenarioCreator
+
 
 # ----------------------------------------------------
 # CLI arguments
 # ----------------------------------------------------
 def parse_args():
     parser = argparse.ArgumentParser(description="Train PPO on MiniGrid environment")
-    parser.add_argument("--env_name", type=str, default="MiniGrid-Empty-8x8-v0", help="Environment ID")
     parser.add_argument("--device", type=str, default="auto", help="cpu or cuda:0")
     parser.add_argument("--lr", type=float, default=3e-4)
     parser.add_argument("--gamma", type=float, default=0.99)
@@ -40,7 +41,7 @@ def parse_args():
     parser.add_argument("--ckpt_dir", type=str, default="checkpoints")
     parser.add_argument("--visual_eval", action="store_true", help="Render agent visually after training")
     parser.add_argument("--print_interval", type=int, default=1000, help="Console print frequency (in steps)")
-    parser.add_argument("--run_name", type=str, default=None, help="Optional custom name for this run")
+    parser.add_argument("--difficulty", type=str, default="easy", help="Environment difficulty level (easy, medium, hard)")
     return parser.parse_args()
 
 
@@ -107,10 +108,9 @@ def train_minigrid(args):
     device = get_device()
 
     # Create environment
-    env = gym.make(args.env_name, render_mode=None)
-    env = FullyObsWrapper(env)
-    env = RGBImgPartialObsWrapper(env)
-    env = ImgObsWrapper(env)
+    sc_gen = ScenarioCreator("src/config/scenario.yaml")
+    env = sc_gen.create_env(difficulty=args.difficulty)
+    print(f"Loaded environment from ScenarioCreator | Difficulty: {args.difficulty}")
     # env = FlattenObservation(env)  
 
     sample_obs, _ = env.reset()
@@ -135,8 +135,9 @@ def train_minigrid(args):
 
     # Unique timestamp for this run
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    run_name = args.run_name or "default"
-    run_id = f"{args.env_name}_{run_name}_{timestamp}"
+    env_id = sc_gen.config["difficulties"][args.difficulty]["env_id"]
+    run_id = f"{env_id}_{args.difficulty}_{timestamp}"
+
 
     # Create subdirectories for this run
     log_subdir = os.path.join(args.log_dir, run_id)
@@ -157,13 +158,15 @@ def train_minigrid(args):
     start_time = time.time()
 
     print(f"Training started on {device} for {args.total_steps:,} total steps")
-    print(f"Environment: {args.env_name}")
+    print(f"Environment: {env}")
     print(f"Run name: {run_id}")
     print("============================================================================================")
 
 
     while step_count < args.total_steps:
+        print("Collecting rollouts...")
         agent.collect_rollouts()
+        print("Updating PPO...")
         agent.update()
         step_count += agent.batch_size
 

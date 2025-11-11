@@ -1,0 +1,15 @@
+seed: 123
+
+difficulties:
+  easy:
+    env_id: MiniGrid-Empty-8x8-v0
+    params:
+      render_mode: none
+  medium:
+    env_id: MiniGrid-DoorKey-8x8-v0
+    params:
+      render_mode: none
+  hard:
+    env_id: MiniGrid-MultiRoom-N6-v0
+    params:
+      render_mode: none
