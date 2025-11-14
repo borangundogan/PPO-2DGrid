@@ -1,15 +1,23 @@
 seed: 123
 
+observation:
+  fully_observable: false
+  normalize: true
+  flatten: true
+
 difficulties:
   easy:
     env_id: MiniGrid-Empty-8x8-v0
     params:
       render_mode: rgb_array
+      max_steps: 100
   medium:
     env_id: MiniGrid-DoorKey-8x8-v0
     params:
       render_mode: rgb_array
+      max_steps: 250
   hard:
     env_id: MiniGrid-MultiRoom-N6-v0
     params:
       render_mode: rgb_array
+      max_steps: 500

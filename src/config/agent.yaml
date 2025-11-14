@@ -1,0 +1,40 @@
+agent:
+  name: PPO
+  device: auto
+
+  # Optimizer & learning
+  learning_rate: 3e-4
+  gamma: 0.99
+  lam: 0.95              # GAE lambda
+  clip_eps: 0.2          # PPO clip ratio
+  vf_coef: 0.5           # Value function loss weight
+  ent_coef: 0.01         # Entropy bonus
+  update_epochs: 10      # Number of PPO update iterations per batch
+
+  # Rollout collection
+  batch_size: 2048       # Steps per PPO update
+  minibatch_size: 256    # Minibatch for SGD
+
+  # Gradient settings
+  max_grad_norm: 0.5
+
+  # Initialization
+  seed: 123
+
+network:
+  type: mlp               # or "cnn" in future versions
+  hidden_sizes: [256, 256]
+  activation: silu
+
+  normalize_obs: true     # maps obs → obs / 255
+  flatten_obs: true       # must match scenario.yaml observation.flatten
+
+  # Optional future features
+  # recurrent: false
+  # lstm_hidden_size: 128
+
+logging:
+  log_interval: 5000
+  eval_episodes: 3
+  save_interval: 20000
+  output_precision: 4
