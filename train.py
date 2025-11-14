@@ -14,7 +14,6 @@ import matplotlib.pyplot as plt
 
 from src.ppo import PPO
 from src.utils import get_device
-
 from src.scenario_creator.scenario_creator import ScenarioCreator
 
 
@@ -57,7 +56,7 @@ def evaluate_policy(agent, env, episodes=3):
         while not done:
             with torch.no_grad():
                 obs_t = torch.tensor(obs, dtype=torch.float32, device=agent.device).view(1, -1)
-                obs_t = obs_t / 255.0 # # normalize the input observations !
+                obs_t = obs_t / 255.0
                 action, _, _ = agent.ac.act(obs_t)
             obs, reward, terminated, truncated, _ = env.step(action.item())
             total_reward += reward
@@ -66,36 +65,46 @@ def evaluate_policy(agent, env, episodes=3):
     return rewards
 
 
-def visualize_agent(agent, env_name="MiniGrid-Empty-8x8-v0", model_path=None, episodes=1):
-    print("\nStarting visual evaluation")
-    env = gym.make(env_name, render_mode="human")
-    env = FullyObsWrapper(env)
-    env = RGBImgPartialObsWrapper(env)
+def visualize_agent(agent, difficulty="easy", model_path=None, episodes=1):
+    sc_gen = ScenarioCreator("src/config/scenario.yaml")
+    cfg = sc_gen.config["difficulties"][difficulty]
+    params = cfg.get("params", {}).copy()
+    params["render_mode"] = "human"
+    env = gym.make(cfg["env_id"], **params)
+
+    obs_cfg = sc_gen.config.get("observation", {})
+    if obs_cfg.get("fully_observable", False):
+        env = FullyObsWrapper(env)
+    else:
+        env = RGBImgPartialObsWrapper(env)
     env = ImgObsWrapper(env)
+    if obs_cfg.get("flatten", False):
+        env = FlattenObservation(env)
 
     obs_dim = int(np.prod(env.observation_space.shape))
     act_dim = env.action_space.n
 
+    device = agent.device if hasattr(agent, "device") else torch.device("cpu")
     if model_path:
         from src.actor_critic import ActorCritic
-        actor = ActorCritic(obs_dim, act_dim)
-        actor.load_state_dict(torch.load(model_path, map_location=torch.device("cpu")))
+        actor = ActorCritic(obs_dim, act_dim).to(device)
+        actor.load_state_dict(torch.load(model_path, map_location=device))
         actor.eval()
     else:
         actor = agent.ac
 
     for ep in range(episodes):
         obs, _ = env.reset()
-        done = False
-        total_reward = 0
+        done, total_reward = False, 0.0
         while not done:
             with torch.no_grad():
-                obs_t = torch.tensor(obs, dtype=torch.float32).view(1, -1)
+                obs_t = torch.tensor(obs, dtype=torch.float32, device=device).view(1, -1)
+                obs_t = obs_t / 255.0
                 action, _, _ = actor.act(obs_t)
             obs, reward, terminated, truncated, _ = env.step(action.item())
             total_reward += reward
             done = terminated or truncated
-            time.sleep(0.1)
+            time.sleep(0.08)
         print(f"Episode {ep+1}: total_reward = {total_reward:.3f}")
     env.close()
 
@@ -107,18 +116,15 @@ def train_minigrid(args):
     print("============================================================================================")
     device = get_device()
 
-    # Create environment
     sc_gen = ScenarioCreator("src/config/scenario.yaml")
     env = sc_gen.create_env(difficulty=args.difficulty)
     print(f"Loaded environment from ScenarioCreator | Difficulty: {args.difficulty}")
-    # env = FlattenObservation(env)  
 
     sample_obs, _ = env.reset()
     obs_dim = int(np.prod(sample_obs.shape))
     print(f"Observation shape: {obs_dim}")
     print(f"Sample obs shape: {obs_dim}, min={sample_obs.min()}, max={sample_obs.max()}")
 
-    # PPO agent
     agent = PPO(
         env=env,
         lr=args.lr,
@@ -133,48 +139,42 @@ def train_minigrid(args):
         device=device,
     )
 
-    # Unique timestamp for this run
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     env_id = sc_gen.config["difficulties"][args.difficulty]["env_id"]
     run_id = f"{env_id}_{args.difficulty}_{timestamp}"
 
-
-    # Create subdirectories for this run
     log_subdir = os.path.join(args.log_dir, run_id)
     ckpt_subdir = os.path.join(args.ckpt_dir, run_id)
     os.makedirs(log_subdir, exist_ok=True)
     os.makedirs(ckpt_subdir, exist_ok=True)
 
-    # File paths
     log_path = os.path.join(log_subdir, "training.csv")
     ckpt_path = os.path.join(ckpt_subdir, "ppo_model.pth")
 
     log_file = open(log_path, "w", newline="")
     writer = csv.writer(log_file)
-    writer.writerow(["step", "avg_reward", "time_min"])
+    writer.writerow(["step", "avg_reward", "time_min", "difficulty"])
 
     step_count = 0
     episode_rewards = []
     start_time = time.time()
 
     print(f"Training started on {device} for {args.total_steps:,} total steps")
-    print(f"Environment: {env}")
+    print(f"Environment: {env_id}")
     print(f"Run name: {run_id}")
     print("============================================================================================")
-
 
     while step_count < args.total_steps:
         agent.collect_rollouts()
         agent.update()
         step_count += agent.batch_size
 
-        # Evaluate and log
         eval_rewards = evaluate_policy(agent, env, episodes=args.eval_episodes)
         avg_r = np.mean(eval_rewards)
         episode_rewards.append(avg_r)
 
         elapsed_min = (time.time() - start_time) / 60
-        writer.writerow([step_count, round(avg_r, 3), round(elapsed_min, 2)])
+        writer.writerow([step_count, round(avg_r, 3), round(elapsed_min, 2), args.difficulty])
         log_file.flush()
 
         if step_count % args.print_interval == 0 or step_count >= args.total_steps:
@@ -184,7 +184,6 @@ def train_minigrid(args):
             torch.save(agent.ac.state_dict(), ckpt_path)
             print(f"Model checkpoint saved at step {step_count} -> {ckpt_path}")
 
-    # Cleanup
     log_file.close()
     env.close()
 
@@ -195,17 +194,14 @@ def train_minigrid(args):
     print(f"Model saved to: {ckpt_path}")
     print("============================================================================================")
 
-    # --------------------------
-    # Plot training progress
-    # --------------------------
     try:
         import pandas as pd
         df = pd.read_csv(log_path)
         plt.figure(figsize=(8, 4))
-        plt.plot(df["step"], df["avg_reward"], label="Average Reward", color="green")
+        plt.plot(df["step"], df["avg_reward"], label="Average Reward")
         plt.xlabel("Training Steps")
         plt.ylabel("Average Reward")
-        plt.title(f"PPO Training Progress - {args.env_name}")
+        plt.title(f"PPO Training Progress - {env_id}")
         plt.grid(True, linestyle="--", alpha=0.6)
         plt.legend()
         plt.tight_layout()
@@ -217,12 +213,9 @@ def train_minigrid(args):
         print(f"Plotting skipped due to error: {e}")
 
     if args.visual_eval:
-        visualize_agent(agent, env_name=args.env_name, model_path=ckpt_path, episodes=2)
+        visualize_agent(agent, difficulty=args.difficulty, model_path=ckpt_path, episodes=2)
 
 
-# ----------------------------------------------------
-# Entry point
-# ----------------------------------------------------
 if __name__ == "__main__":
     args = parse_args()
     train_minigrid(args)
