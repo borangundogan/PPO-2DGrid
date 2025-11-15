@@ -2,7 +2,6 @@ seed: 123
 
 observation:
   fully_observable: false
-  normalize: true
   flatten: true
 
 difficulties:
