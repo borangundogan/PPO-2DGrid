@@ -1,6 +1,6 @@
 # PPO: Proximal Policy Optimization in MiniGrid Environments
 
-This repository implements **Proximal Policy Optimization (PPO)** from scratch using PyTorch and tests it on lightweight **MiniGrid** environments. The project is part of the *MERLIN* (Meta- and Reinforcement Learning Infrastructure for Evaluation) initiative, aiming to build reliable and extensible RL baselines for further experimentation with **Meta-RL algorithms** such as MAML, FOMAML, Reptile, and LAMRL.
+This repository implements **Proximal Policy Optimization (PPO)** from scratch using PyTorch and tests it on lightweight **MiniGrid** environments.
 
 ## Features
 - Clean and modular PPO implementation in PyTorch
