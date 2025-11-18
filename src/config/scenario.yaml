@@ -4,19 +4,28 @@ observation:
   fully_observable: false
   flatten: true
 
+# NOTE: All environments must use the same grid size (MERLIN_C2 requirement).
+# Using 8x8 ensures consistent observation/action spaces for PPO & future Meta-RL.
+
 difficulties:
   easy:
     env_id: MiniGrid-Empty-8x8-v0
     params:
       render_mode: rgb_array
       max_steps: 100
+      # NOTE: Easy tasks should be solvable with minimal exploration.
+
   medium:
     env_id: MiniGrid-DoorKey-8x8-v0
     params:
       render_mode: rgb_array
       max_steps: 250
+      # NOTE: Medium tasks introduce reasoning (key-door), but keep the same grid size.
+
   hard:
-    env_id: MiniGrid-MultiRoom-N6-v0
+    env_id: MiniGrid-Dynamic-Obstacles-8x8-v0
     params:
       render_mode: rgb_array
-      max_steps: 500
+      max_steps: 300
+      # NOTE: Hard tasks must remain the same grid size.
+      # Dynamic obstacles add stochasticity → good for testing generalization.
