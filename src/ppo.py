@@ -3,7 +3,7 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 
-from .actor_critic import ActorCritic
+from .actor_critic import MLPActorCritic, CNNActorCritic
 from .rollout_buffer import RolloutBuffer
 
 
@@ -25,13 +25,24 @@ class PPO:
         self.env = env
         self.device = torch.device(device)
 
+        # Inspect one observation to decide MLP (flattened) vs CNN (image)
         sample_obs, _ = env.reset()
-        obs_dim = int(np.prod(sample_obs.shape))
         act_dim = env.action_space.n
 
-        self.ac = ActorCritic(obs_dim, act_dim).to(self.device)
-        self.optimizer = optim.Adam(self.ac.parameters(), lr=lr)
+        if sample_obs.ndim == 1:
+            # Flattened vector input → use MLP policy
+            self.use_cnn = False
+            obs_dim = int(np.prod(sample_obs.shape))
+            self.ac = MLPActorCritic(obs_dim, act_dim).to(self.device)
+            print(f"[PPO] Using MLPActorCritic, obs_dim={obs_dim}")
+        else:
+            # Image-like input (H, W, C) → use CNN policy
+            self.use_cnn = True
+            obs_shape = sample_obs.shape  # (H, W, C)
+            self.ac = CNNActorCritic(obs_shape, act_dim).to(self.device)
+            print(f"[PPO] Using CNNActorCritic, obs_shape={obs_shape}")
 
+        self.optimizer = optim.Adam(self.ac.parameters(), lr=lr)
         self.buffer = RolloutBuffer()
 
         self.gamma = gamma
@@ -43,10 +54,24 @@ class PPO:
         self.vf_coef = vf_coef
         self.ent_coef = ent_coef
 
-        # --- CRITICAL for TensorBoard ---
+        # For logging
         self.episode_returns = []
         self.episode_lengths = []
 
+    def _obs_to_tensor(self, state):
+        """Convert raw env state to torch tensor, handling MLP vs CNN."""
+        if self.use_cnn:
+            # state: (H, W, C) → (1, H, W, C)
+            state_t = torch.tensor(state, dtype=torch.float32, device=self.device).unsqueeze(0)
+        else:
+            # state: (obs_dim,) → (1, obs_dim)
+            state_t = (
+                torch.tensor(state, dtype=torch.float32, device=self.device)
+                .view(1, -1)
+            )
+        # MiniGrid obs are uint8 images; normalize to [0,1]
+        state_t = state_t / 255.0
+        return state_t
 
     def collect_rollouts(self):
         self.buffer.clear()
@@ -57,9 +82,7 @@ class PPO:
         ep_length = 0
 
         while total_steps < self.batch_size:
-
-            state_t = torch.tensor(state, dtype=torch.float32, device=self.device).view(1, -1)
-            state_t = state_t / 255.0
+            state_t = self._obs_to_tensor(state)
 
             with torch.no_grad():
                 action, logp, value = self.ac.act(state_t)
@@ -67,6 +90,7 @@ class PPO:
             next_state, reward, terminated, truncated, _ = self.env.step(action.item())
             done = terminated or truncated
 
+            # Store state without batch dimension
             self.buffer.add(state_t.squeeze(0), action, logp, value, reward, done)
 
             ep_return += reward
@@ -83,7 +107,6 @@ class PPO:
                 ep_return = 0
                 ep_length = 0
 
-
     def compute_gae(self, rewards, values, dones, last_value):
         T = len(rewards)
         adv = np.zeros(T, dtype=np.float32)
@@ -99,9 +122,7 @@ class PPO:
         returns = values + adv
         return adv, returns
 
-
     def update(self):
-
         (
             states,
             actions,
@@ -128,48 +149,55 @@ class PPO:
         N = states.shape[0]
         idxs = np.arange(N)
 
-        total_pi_loss = 0
-        total_v_loss = 0
-        total_entropy = 0
-        n_batches = 0
+        total_pi = total_v = total_ent = 0
+        total_kl = total_clip = total_gnorm = 0
+        nbatches = 0
 
         for _ in range(self.update_epochs):
             np.random.shuffle(idxs)
-
             for start in range(0, N, self.minibatch_size):
-
                 mb_idx = idxs[start:start+self.minibatch_size]
                 mb = lambda x: x[mb_idx]
 
-                logp_new, entropy, values = self.ac.evaluate(mb(states), mb(actions))
+                logp_new, entropy, values = self.ac.evaluate(
+                    mb(states), mb(actions)
+                )
 
                 ratio = torch.exp(logp_new - mb(logprobs_old))
-
                 surr1 = ratio * mb(adv)
-                surr2 = torch.clamp(ratio, 1.0-self.clip_eps, 1.0+self.clip_eps) * mb(adv)
+                surr2 = torch.clamp(ratio, 1 - self.clip_eps, 1 + self.clip_eps) * mb(adv)
 
-                policy_loss = -torch.min(surr1, surr2).mean()
-                value_loss = ((values - mb(returns)) ** 2).mean()
+                pi_loss = -torch.min(surr1, surr2).mean()
+                v_loss = ((values - mb(returns))**2).mean()
+                loss = pi_loss + self.vf_coef*v_loss - self.ent_coef*entropy.mean()
 
-                loss = policy_loss + self.vf_coef * value_loss - self.ent_coef * entropy.mean()
+                approx_kl = (mb(logprobs_old) - logp_new).mean()
+                clipfrac = (torch.abs(ratio - 1.0) > self.clip_eps).float().mean()
 
                 self.optimizer.zero_grad()
                 loss.backward()
-                nn.utils.clip_grad_norm_(self.ac.parameters(), 0.5)
+                grad_norm = torch.nn.utils.clip_grad_norm_(self.ac.parameters(), 0.5)
                 self.optimizer.step()
 
-                total_pi_loss += policy_loss.item()
-                total_v_loss += value_loss.item()
-                total_entropy += entropy.mean().item()
-                n_batches += 1
+                total_pi += pi_loss.item()
+                total_v += v_loss.item()
+                total_ent += entropy.mean().item()
+                total_kl += approx_kl.item()
+                total_clip += clipfrac.item()
+                total_gnorm += grad_norm.item()
 
-        avg_pi = total_pi_loss / n_batches
-        avg_v = total_v_loss / n_batches
-        avg_ent = total_entropy / n_batches
+                nbatches += 1
 
-        print(f"   PPO update | π_loss: {avg_pi:.4f} | V_loss: {avg_v:.4f} | Entropy: {avg_ent:.4f}")
+        metrics = {
+            "pi_loss": total_pi / nbatches,
+            "v_loss": total_v / nbatches,
+            "entropy": total_ent / nbatches,
+            "kl": total_kl / nbatches,
+            "clipfrac": total_clip / nbatches,
+            "gradnorm": total_gnorm / nbatches,
+        }
 
-        return avg_pi, avg_v, avg_ent
+        return metrics
 
 
     def train(self, total_steps=100_000):
