@@ -12,5 +12,6 @@ dependencies = [
     "numpy>=2.3.4",
     "pandas>=2.3.3",
     "pyyaml>=6.0.3",
+    "tensorboard>=2.20.0",
     "torch>=2.9.0",
 ]
