@@ -11,15 +11,13 @@ import minigrid
 from gymnasium.wrappers import FlattenObservation
 from minigrid.wrappers import FullyObsWrapper, RGBImgPartialObsWrapper, ImgObsWrapper
 import matplotlib.pyplot as plt
+from torch.utils.tensorboard import SummaryWriter
 
 from src.ppo import PPO
 from src.utils import get_device
 from src.scenario_creator.scenario_creator import ScenarioCreator
 
 
-# ----------------------------------------------------
-# CLI arguments
-# ----------------------------------------------------
 def parse_args():
     parser = argparse.ArgumentParser(description="Train PPO on MiniGrid environment")
     parser.add_argument("--device", type=str, default="auto", help="cpu or cuda:0")
@@ -44,9 +42,6 @@ def parse_args():
     return parser.parse_args()
 
 
-# ----------------------------------------------------
-# Evaluation functions
-# ----------------------------------------------------
 def evaluate_policy(agent, env, episodes=3):
     rewards = []
     for _ in range(episodes):
@@ -109,12 +104,11 @@ def visualize_agent(agent, difficulty="easy", model_path=None, episodes=1):
     env.close()
 
 
-# ----------------------------------------------------
-# Main training loop
-# ----------------------------------------------------
 def train_minigrid(args):
     print("============================================================================================")
     device = get_device()
+
+    from torch.utils.tensorboard import SummaryWriter
 
     sc_gen = ScenarioCreator("src/config/scenario.yaml")
     env = sc_gen.create_env(difficulty=args.difficulty)
@@ -143,20 +137,16 @@ def train_minigrid(args):
     env_id = sc_gen.config["difficulties"][args.difficulty]["env_id"]
     run_id = f"{env_id}_{args.difficulty}_{timestamp}"
 
-    log_subdir = os.path.join(args.log_dir, run_id)
     ckpt_subdir = os.path.join(args.ckpt_dir, run_id)
-    os.makedirs(log_subdir, exist_ok=True)
+    tb_dir = os.path.join("tb_logs", run_id)
     os.makedirs(ckpt_subdir, exist_ok=True)
+    os.makedirs(tb_dir, exist_ok=True)
 
-    log_path = os.path.join(log_subdir, "training.csv")
+    writer_tb = SummaryWriter(log_dir=tb_dir)
+
     ckpt_path = os.path.join(ckpt_subdir, "ppo_model.pth")
 
-    log_file = open(log_path, "w", newline="")
-    writer = csv.writer(log_file)
-    writer.writerow(["step", "avg_reward", "time_min", "difficulty"])
-
     step_count = 0
-    episode_rewards = []
     start_time = time.time()
 
     print(f"Training started on {device} for {args.total_steps:,} total steps")
@@ -166,16 +156,42 @@ def train_minigrid(args):
 
     while step_count < args.total_steps:
         agent.collect_rollouts()
-        agent.update()
+        pi_loss, v_loss, entropy = agent.update()
         step_count += agent.batch_size
 
         eval_rewards = evaluate_policy(agent, env, episodes=args.eval_episodes)
         avg_r = np.mean(eval_rewards)
-        episode_rewards.append(avg_r)
 
         elapsed_min = (time.time() - start_time) / 60
-        writer.writerow([step_count, round(avg_r, 3), round(elapsed_min, 2), args.difficulty])
-        log_file.flush()
+
+        # ---------------- TensorBoard Scalars ----------------
+        writer_tb.add_scalar("reward/avg_eval_reward", avg_r, step_count)
+        writer_tb.add_scalar("loss/policy_loss", pi_loss, step_count)
+        writer_tb.add_scalar("loss/value_loss", v_loss, step_count)
+        writer_tb.add_scalar("loss/entropy", entropy, step_count)
+
+        # Episode stats
+        if len(agent.episode_returns) > 0:
+            writer_tb.add_scalar("stats/episode_return_mean",
+                np.mean(agent.episode_returns[-10:]), step_count)
+            writer_tb.add_scalar("stats/episode_length_mean",
+                np.mean(agent.episode_lengths[-10:]), step_count)
+
+        # ---------------- TensorBoard Histograms ----------------
+        if len(agent.episode_returns) >= 10:
+            writer_tb.add_histogram("hist/episode_rewards",
+                np.array(agent.episode_returns[-50:]), step_count)
+            writer_tb.add_histogram("hist/episode_lengths",
+                np.array(agent.episode_lengths[-50:]), step_count)
+
+            # ---------------- TensorBoard Scatter ----------------
+            fig = plt.figure()
+            plt.scatter(agent.episode_lengths[-50:], agent.episode_returns[-50:], c="green")
+            plt.xlabel("Steps")
+            plt.ylabel("Reward")
+            plt.title("Reward vs Steps")
+            writer_tb.add_figure("fig/reward_vs_steps", fig, step_count)
+            plt.close(fig)
 
         if step_count % args.print_interval == 0 or step_count >= args.total_steps:
             print(f"[Steps: {step_count:>7}] | Avg reward: {avg_r:.3f} | Time: {elapsed_min:.2f} min")
@@ -184,33 +200,15 @@ def train_minigrid(args):
             torch.save(agent.ac.state_dict(), ckpt_path)
             print(f"Model checkpoint saved at step {step_count} -> {ckpt_path}")
 
-    log_file.close()
     env.close()
+    writer_tb.close()
 
     total_time = (time.time() - start_time) / 60
     print("============================================================================================")
-    print(f"Training finished ✅ | Total time: {total_time:.2f} min")
-    print(f"Logs saved to: {log_path}")
+    print(f"Training finished | Total time: {total_time:.2f} min")
+    print(f"TensorBoard logs: {tb_dir}")
     print(f"Model saved to: {ckpt_path}")
     print("============================================================================================")
-
-    try:
-        import pandas as pd
-        df = pd.read_csv(log_path)
-        plt.figure(figsize=(8, 4))
-        plt.plot(df["step"], df["avg_reward"], label="Average Reward")
-        plt.xlabel("Training Steps")
-        plt.ylabel("Average Reward")
-        plt.title(f"PPO Training Progress - {env_id}")
-        plt.grid(True, linestyle="--", alpha=0.6)
-        plt.legend()
-        plt.tight_layout()
-        plot_path = os.path.join(log_subdir, "reward_plot.png")
-        plt.savefig(plot_path)
-        print(f"Plot saved to: {plot_path}")
-        plt.show()
-    except Exception as e:
-        print(f"Plotting skipped due to error: {e}")
 
     if args.visual_eval:
         visualize_agent(agent, difficulty=args.difficulty, model_path=ckpt_path, episodes=2)

@@ -7,7 +7,6 @@ from .actor_critic import ActorCritic
 from .rollout_buffer import RolloutBuffer
 
 
-# PPO algorithm 
 class PPO:
     def __init__(
         self,
@@ -26,20 +25,15 @@ class PPO:
         self.env = env
         self.device = torch.device(device)
 
-        # Observation & action dims
         sample_obs, _ = env.reset()
         obs_dim = int(np.prod(sample_obs.shape))
-        print("Observation shape:", env.observation_space.shape)
         act_dim = env.action_space.n
 
-        # Actor-Critic Network
         self.ac = ActorCritic(obs_dim, act_dim).to(self.device)
         self.optimizer = optim.Adam(self.ac.parameters(), lr=lr)
 
-        # Rollout buffer
         self.buffer = RolloutBuffer()
 
-        # Hyperparameters
         self.gamma = gamma
         self.lam = lam
         self.clip_eps = clip_eps
@@ -49,13 +43,12 @@ class PPO:
         self.vf_coef = vf_coef
         self.ent_coef = ent_coef
 
-        # EPISODE-BASED METRICS (for TensorBoard/histograms) 
+        # --- CRITICAL for TensorBoard ---
         self.episode_returns = []
         self.episode_lengths = []
 
 
     def collect_rollouts(self):
-        """Collect trajectories AND record episode-level stats."""
         self.buffer.clear()
         state, _ = self.env.reset()
 
@@ -64,8 +57,9 @@ class PPO:
         ep_length = 0
 
         while total_steps < self.batch_size:
+
             state_t = torch.tensor(state, dtype=torch.float32, device=self.device).view(1, -1)
-            state_t = state_t / 255.0  # normalize to [0,1]
+            state_t = state_t / 255.0
 
             with torch.no_grad():
                 action, logp, value = self.ac.act(state_t)
@@ -73,20 +67,18 @@ class PPO:
             next_state, reward, terminated, truncated, _ = self.env.step(action.item())
             done = terminated or truncated
 
-            # Add to rollout buffer
             self.buffer.add(state_t.squeeze(0), action, logp, value, reward, done)
 
             ep_return += reward
             ep_length += 1
-            state = next_state
 
+            state = next_state
             total_steps += 1
 
             if done:
                 self.episode_returns.append(ep_return)
                 self.episode_lengths.append(ep_length)
 
-                # Reset for next episode
                 state, _ = self.env.reset()
                 ep_return = 0
                 ep_length = 0
@@ -109,9 +101,16 @@ class PPO:
 
 
     def update(self):
-        states, actions, logprobs_old, rewards, values_old, dones = self.buffer.to_tensors(self.device)
 
-        # Last value for GAE
+        (
+            states,
+            actions,
+            logprobs_old,
+            rewards,
+            values_old,
+            dones,
+        ) = self.buffer.to_tensors(self.device)
+
         with torch.no_grad():
             last_value = self.ac.critic(states[-1].unsqueeze(0)).item()
 
@@ -138,12 +137,14 @@ class PPO:
             np.random.shuffle(idxs)
 
             for start in range(0, N, self.minibatch_size):
+
                 mb_idx = idxs[start:start+self.minibatch_size]
                 mb = lambda x: x[mb_idx]
 
                 logp_new, entropy, values = self.ac.evaluate(mb(states), mb(actions))
 
                 ratio = torch.exp(logp_new - mb(logprobs_old))
+
                 surr1 = ratio * mb(adv)
                 surr2 = torch.clamp(ratio, 1.0-self.clip_eps, 1.0+self.clip_eps) * mb(adv)
 
@@ -166,9 +167,8 @@ class PPO:
         avg_v = total_v_loss / n_batches
         avg_ent = total_entropy / n_batches
 
-        print(f"PPO update | π_loss: {avg_pi:.4f} | V_loss: {avg_v:.4f} | Ent: {avg_ent:.4f}")
+        print(f"   PPO update | π_loss: {avg_pi:.4f} | V_loss: {avg_v:.4f} | Entropy: {avg_ent:.4f}")
 
-        # --- VERY IMPORTANT for TensorBoard ---
         return avg_pi, avg_v, avg_ent
 
 
