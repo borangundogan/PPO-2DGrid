@@ -75,6 +75,9 @@ def build_env_human(sc_gen, difficulty):
 
     if obs_cfg.get("flatten", False):
         env = FlattenObservation(env)
+    
+    from src.wrappers.three_action_wrapper import ThreeActionWrapper
+    env = ThreeActionWrapper(env)
 
     return env
 

@@ -197,6 +197,9 @@ class PPO:
             "gradnorm": total_gnorm / nbatches,
         }
 
+        print(metrics)
+        
+
         return metrics
 
 

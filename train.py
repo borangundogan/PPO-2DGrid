@@ -88,6 +88,8 @@ def evaluate_policy(agent, env, episodes=3):
 # Visualize agent (MLP/CNN safe version)
 # ================================================================
 def visualize_agent(agent, difficulty="easy", episodes=1):
+    from src.wrappers.three_action_wrapper import ThreeActionWrapper
+    
     sc_gen = ScenarioCreator("src/config/scenario.yaml")
 
     cfg = sc_gen.config["difficulties"][difficulty]
@@ -107,6 +109,8 @@ def visualize_agent(agent, difficulty="easy", episodes=1):
 
     if obs_cfg.get("flatten", False):
         env = FlattenObservation(env)
+
+    env = ThreeActionWrapper(env)
 
     device = agent.device
     actor = agent.ac  # use trained model directly
@@ -259,7 +263,7 @@ def train_minigrid(args):
             print(
                 f"[Steps: {step_count:>7}] | "
                 f"Reward: {avg_r:.3f} | "
-                f"TotalLoss: {total_loss:.4f} | "
+                f"Loss: {total_loss:.4f} | "
                 f"π: {update_stats['pi_loss']:.4f} | "
                 f"V: {update_stats['v_loss']:.4f} | "
                 f"Ent: {update_stats['entropy']:.4f} | "

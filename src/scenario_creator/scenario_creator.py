@@ -3,9 +3,12 @@ import os
 import yaml
 import random
 import numpy as np
+
 import gymnasium as gym
 from minigrid.wrappers import FullyObsWrapper, RGBImgPartialObsWrapper, ImgObsWrapper
 from gymnasium.wrappers import FlattenObservation
+
+from src.wrappers.three_action_wrapper import ThreeActionWrapper
 
 
 class ScenarioCreator:
@@ -103,6 +106,7 @@ class ScenarioCreator:
             print("[ScenarioCreator] FlattenObservation enabled (MLP input).")
 
         env.reset(seed=self.seed)
+        env = ThreeActionWrapper(env)
         return env
 
     # ----------------------------------------------------------
