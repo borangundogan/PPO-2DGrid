@@ -19,7 +19,7 @@ def parse_args():
     parser = argparse.ArgumentParser(description="Test PPO model with ScenarioCreator")
 
     parser.add_argument("--difficulty", type=str, default="easy",
-                        help="easy | medium | hard")
+                        choices=["easy", "medium", "hard", "hardest"])
 
     parser.add_argument("--episodes", type=int, default=10)
     parser.add_argument("--model_path", type=str, default=None,
@@ -59,11 +59,10 @@ def find_latest_checkpoint(ckpt_root, env_name):
 def build_env_human(sc_gen, difficulty):
     cfg = sc_gen.config["difficulties"][difficulty]
     params = cfg.get("params", {}).copy()
-    params["render_mode"] = "human"      # for visualization
+    params["render_mode"] = "human"
 
     env = gym.make(cfg["env_id"], **params)
 
-    # Apply same wrappers as ScenarioCreator
     obs_cfg = sc_gen.get_observation_params()
 
     if obs_cfg.get("fully_observable", False):
@@ -75,7 +74,7 @@ def build_env_human(sc_gen, difficulty):
 
     if obs_cfg.get("flatten", False):
         env = FlattenObservation(env)
-    
+
     from src.wrappers.three_action_wrapper import ThreeActionWrapper
     env = ThreeActionWrapper(env)
 
@@ -88,11 +87,10 @@ def build_env_human(sc_gen, difficulty):
 def test_agent(model_path, sc_gen, difficulty, device, episodes=10, render=True):
     print(f"[Test] Loading env: {difficulty}")
 
-    # Create human-render environment
     env = build_env_human(sc_gen, difficulty)
     obs_sample, _ = env.reset()
+    obs_sample = np.array(obs_sample, dtype=np.float32)
 
-    # Detect CNN/MLP
     if obs_sample.ndim == 3:
         use_cnn = True
         obs_shape = obs_sample.shape
@@ -104,7 +102,6 @@ def test_agent(model_path, sc_gen, difficulty, device, episodes=10, render=True)
 
     act_dim = env.action_space.n
 
-    # Build correct model architecture
     if use_cnn:
         policy = CNNActorCritic(obs_shape, act_dim).to(device)
         print(f"[Test] Using CNNActorCritic, obs_shape={obs_shape}")
@@ -112,15 +109,15 @@ def test_agent(model_path, sc_gen, difficulty, device, episodes=10, render=True)
         policy = MLPActorCritic(obs_dim, act_dim).to(device)
         print(f"[Test] Using MLPActorCritic, obs_dim={obs_dim}")
 
-    # Load weights
     policy.load_state_dict(torch.load(model_path, map_location=device))
     policy.eval()
     print(f"[Test] Loaded weights: {model_path}")
 
-    # Run test episodes
     rewards = []
+
     for ep in range(1, episodes + 1):
         obs, _ = env.reset()
+        obs = np.array(obs, dtype=np.float32)
         done = False
         ep_reward = 0
 
@@ -136,6 +133,7 @@ def test_agent(model_path, sc_gen, difficulty, device, episodes=10, render=True)
                 action, _, _ = policy.act(obs_t)
 
             obs, reward, terminated, truncated, _ = env.step(action.item())
+            obs = np.array(obs, dtype=np.float32)
             ep_reward += reward
             done = terminated or truncated
 
@@ -162,14 +160,12 @@ if __name__ == "__main__":
     sc_gen = ScenarioCreator(args.config)
     env_id = sc_gen.get_env_id(args.difficulty)
 
-    # Auto-detect model file
     if args.model_path is None:
         model_path = find_latest_checkpoint(args.ckpt_dir, env_id)
         print(f"[Test] Found latest checkpoint: {model_path}")
     else:
         model_path = args.model_path
 
-    # Run test
     test_agent(
         model_path=model_path,
         sc_gen=sc_gen,

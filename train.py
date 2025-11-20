@@ -47,8 +47,13 @@ def parse_args():
     parser.add_argument("--print_interval", type=int, default=100,
                         help="Console print frequency (in steps)")
 
-    parser.add_argument("--difficulty", type=str, default="easy",
-                        help="Environment difficulty level (easy, medium, hard)")
+    parser.add_argument(
+        "--difficulty",
+        type=str,
+        default="easy",
+        choices=["easy", "medium", "hard", "hardest"],
+        help="Environment difficulty level"
+    )
 
     return parser.parse_args()
 
@@ -60,6 +65,7 @@ def evaluate_policy(agent, env, episodes=3):
     rewards = []
     for _ in range(episodes):
         obs, _ = env.reset()
+        obs = np.array(obs, dtype=np.float32)
         done = False
         total_reward = 0
 
@@ -76,6 +82,7 @@ def evaluate_policy(agent, env, episodes=3):
                 action, _, _ = agent.ac.act(obs_t)
 
             obs, reward, terminated, truncated, _ = env.step(action.item())
+            obs = np.array(obs, dtype=np.float32)
             total_reward += reward
             done = terminated or truncated
 
@@ -88,35 +95,37 @@ def evaluate_policy(agent, env, episodes=3):
 # Visualize agent (MLP/CNN safe version)
 # ================================================================
 def visualize_agent(agent, difficulty="easy", episodes=1):
-    from src.wrappers.three_action_wrapper import ThreeActionWrapper
-    
+    print(f"[Visualize] Difficulty = {difficulty}")
+
     sc_gen = ScenarioCreator("src/config/scenario.yaml")
 
-    cfg = sc_gen.config["difficulties"][difficulty]
+    cfg = sc_gen.config["difficulties"][difficulty].copy()
     params = cfg.get("params", {}).copy()
     params["render_mode"] = "human"
 
-    env = gym.make(cfg["env_id"], **params)
+    env_id = cfg["env_id"]
+    env = gym.make(env_id, **params)
 
-    # Apply wrappers like ScenarioCreator
-    obs_cfg = sc_gen.config.get("observation", {})
+    obs_cfg = sc_gen.get_observation_params()
+
     if obs_cfg.get("fully_observable", False):
         env = FullyObsWrapper(env)
     else:
         env = RGBImgPartialObsWrapper(env)
 
     env = ImgObsWrapper(env)
-
     if obs_cfg.get("flatten", False):
         env = FlattenObservation(env)
 
+    from src.wrappers.three_action_wrapper import ThreeActionWrapper
     env = ThreeActionWrapper(env)
 
     device = agent.device
-    actor = agent.ac  # use trained model directly
+    actor = agent.ac
 
     for ep in range(episodes):
         obs, _ = env.reset()
+        obs = np.array(obs, dtype=np.float32)
         total_reward = 0
         done = False
 
@@ -133,6 +142,7 @@ def visualize_agent(agent, difficulty="easy", episodes=1):
                 action, _, _ = actor.act(obs_t)
 
             obs, reward, terminated, truncated, _ = env.step(action.item())
+            obs = np.array(obs, dtype=np.float32)
             total_reward += reward
             done = terminated or truncated
             time.sleep(0.08)
@@ -154,6 +164,7 @@ def train_minigrid(args):
     print(f"Loaded environment from ScenarioCreator | Difficulty: {args.difficulty}")
 
     sample_obs, _ = env.reset()
+    sample_obs = np.array(sample_obs, dtype=np.float32)
     print(f"Sample obs shape: {sample_obs.shape}, min={sample_obs.min()}, max={sample_obs.max()}")
 
     agent = PPO(
@@ -190,61 +201,42 @@ def train_minigrid(args):
     print(f"Run name: {run_id}")
     print("============================================================================================")
 
-    # main train loop
     while step_count < args.total_steps:
-        # 1) Collect rollouts
+
         agent.collect_rollouts()
 
-        # 2) PPO update (returns dict with detailed stats)
         update_stats = agent.update()
         step_count += agent.batch_size
 
-        # 3) Evaluate policy
-        eval_rewards = evaluate_policy(agent, env, episodes=args.eval_episodes)
+        eval_env = sc_gen.create_env(args.difficulty)
+        eval_rewards = evaluate_policy(agent, eval_env, episodes=args.eval_episodes)
         avg_r = np.mean(eval_rewards)
 
         elapsed_min = (time.time() - start_time) / 60
 
-        # ----------------------------------------------------------
-        # TensorBoard Logging
-        # ----------------------------------------------------------
         writer_tb.add_scalar("reward/avg_eval_reward", avg_r, step_count)
 
-        # PPO losses
         writer_tb.add_scalar("loss/policy_loss", update_stats["pi_loss"], step_count)
         writer_tb.add_scalar("loss/value_loss", update_stats["v_loss"], step_count)
         writer_tb.add_scalar("loss/entropy", update_stats["entropy"], step_count)
 
-        # PPO diagnostics
         writer_tb.add_scalar("diagnostics/kl", update_stats["kl"], step_count)
         writer_tb.add_scalar("diagnostics/clipfrac", update_stats["clipfrac"], step_count)
         writer_tb.add_scalar("diagnostics/gradnorm", update_stats["gradnorm"], step_count)
 
-        # Episode stats
         if len(agent.episode_returns) > 0:
-            writer_tb.add_scalar(
-                "stats/episode_return_mean",
-                np.mean(agent.episode_returns[-10:]),
-                step_count
-            )
-            writer_tb.add_scalar(
-                "stats/episode_length_mean",
-                np.mean(agent.episode_lengths[-10:]),
-                step_count
-            )
+            writer_tb.add_scalar("stats/episode_return_mean",
+                                 np.mean(agent.episode_returns[-10:]), step_count)
+            writer_tb.add_scalar("stats/episode_length_mean",
+                                 np.mean(agent.episode_lengths[-10:]), step_count)
 
-        # Histograms
         if len(agent.episode_returns) >= 10:
-            writer_tb.add_histogram(
-                "hist/episode_rewards",
-                np.array(agent.episode_returns[-50:]),
-                step_count
-            )
-            writer_tb.add_histogram(
-                "hist/episode_lengths",
-                np.array(agent.episode_lengths[-50:]),
-                step_count
-            )
+            writer_tb.add_histogram("hist/episode_rewards",
+                                    np.array(agent.episode_returns[-50:]),
+                                    step_count)
+            writer_tb.add_histogram("hist/episode_lengths",
+                                    np.array(agent.episode_lengths[-50:]),
+                                    step_count)
 
             fig = plt.figure()
             plt.scatter(agent.episode_lengths[-50:], agent.episode_returns[-50:], c="green")
@@ -254,9 +246,6 @@ def train_minigrid(args):
             writer_tb.add_figure("fig/reward_vs_steps", fig, step_count)
             plt.close(fig)
 
-        # ----------------------------------------------------------
-        # Console Print (Clean + Compact)
-        # ----------------------------------------------------------
         if step_count % args.print_interval == 0 or step_count >= args.total_steps:
             total_loss = update_stats["pi_loss"] + update_stats["v_loss"]
 
@@ -273,14 +262,11 @@ def train_minigrid(args):
                 f"Time: {elapsed_min:.2f}m"
             )
 
-        # ----------------------------------------------------------
-        # Saving checkpoint
-        # ----------------------------------------------------------
         if step_count % args.save_interval == 0 or step_count >= args.total_steps:
             torch.save(agent.ac.state_dict(), ckpt_path)
             print(f"Model checkpoint saved at step {step_count} -> {ckpt_path}")
 
-# main
+
 if __name__ == "__main__":
     args = parse_args()
     train_minigrid(args)

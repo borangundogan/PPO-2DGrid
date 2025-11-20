@@ -18,27 +18,27 @@ class HardEnv(BaseCustomEnv):
     """
 
     def _gen_grid(self, width, height):
-        # Create grid
         self.grid = Grid(width, height)
 
-        # Outer walls
+        # outer walls
         self.grid.wall_rect(0, 0, width, height)
 
-        # Add vertical separation wall
-        split_x = width // 2  # e.g., 8 for 16x16
+        mid = width // 2
+        doorway_y = height // 2   # middle opening
 
-        for y in range(1, height - 1):
-            self.grid.set(split_x, y, Wall())
+        # vertical wall with an opening
+        for i in range(height):
+            if i != doorway_y:
+                self.grid.set(mid, i, Wall())
 
-        # Add the open door (always unlocked)
-        door_y = height // 2  # center
-        self.grid.set(split_x, door_y, Door(color='blue', is_locked=False))
+        # goal
+        self.put_obj(Goal(), width - 2, height - 2)
 
-        # Random agent
-        self.place_agent()
+        # place agent
+        if self.agent_start_pos is not None:
+            self.agent_pos = self.agent_start_pos
+            self.agent_dir = self.agent_start_dir
+        else:
+            self.place_agent()
 
-        # Random goal
-        self.place_obj(Goal())
-
-        # Mission
-        self.mission = "navigate through the door and reach the goal"
+        self.mission = "navigate through the gap and reach the goal"

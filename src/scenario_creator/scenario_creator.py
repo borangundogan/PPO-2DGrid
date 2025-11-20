@@ -9,7 +9,7 @@ from minigrid.wrappers import FullyObsWrapper, RGBImgPartialObsWrapper, ImgObsWr
 from gymnasium.wrappers import FlattenObservation
 
 from src.wrappers.three_action_wrapper import ThreeActionWrapper
-
+import src.custom_envs.register
 
 class ScenarioCreator:
     """
@@ -91,10 +91,10 @@ class ScenarioCreator:
         # Partial obs is more realistic and aligns with MERLIN assumptions.
         if fully_obs:
             env = FullyObsWrapper(env)
-            print("[ScenarioCreator] Using FullyObsWrapper (Full observation).")
+            # print("[ScenarioCreator] Using FullyObsWrapper (Full observation).")
         else:
             env = RGBImgPartialObsWrapper(env)
-            print("[ScenarioCreator] Using RGBImgPartialObsWrapper (Partial observation).")
+            # print("[ScenarioCreator] Using RGBImgPartialObsWrapper (Partial observation).")
 
         # NOTE: ImgObsWrapper converts dict obs → pure image tensor.
         env = ImgObsWrapper(env)
@@ -103,7 +103,7 @@ class ScenarioCreator:
         # If using CNN policy, flatten=False.
         if flatten:
             env = FlattenObservation(env)
-            print("[ScenarioCreator] FlattenObservation enabled (MLP input).")
+            # print("[ScenarioCreator] FlattenObservation enabled (MLP input).")
 
         env.reset(seed=self.seed)
         env = ThreeActionWrapper(env)
