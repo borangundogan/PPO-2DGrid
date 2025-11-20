@@ -4,41 +4,38 @@ from __future__ import annotations
 
 from .base_env import BaseCustomEnv
 from minigrid.core.grid import Grid
-from minigrid.core.world_object import Wall, Door, Goal
+from minigrid.core.world_object import Wall, Goal
 
 
 class HardEnv(BaseCustomEnv):
     """
     Hard difficulty environment:
     - 16x16 grid
-    - A vertical wall splits the map into two rooms
-    - One open door in the middle of the wall (no key needed)
+    - Vertical wall splits the map into two rooms
+    - One open gap in the wall (no door object)
     - Random agent start
-    - Random goal
+    - Random goal placement
     """
 
     def _gen_grid(self, width, height):
         self.grid = Grid(width, height)
 
-        # outer walls
+        # 1) Outer walls
         self.grid.wall_rect(0, 0, width, height)
 
-        mid = width // 2
-        doorway_y = height // 2   # middle opening
+        # 2) Vertical separator with one opening
+        mid = width // 2             # x = 8
+        doorway_y = height // 2      # y = 8
 
-        # vertical wall with an opening
-        for i in range(height):
-            if i != doorway_y:
-                self.grid.set(mid, i, Wall())
+        for y in range(height):
+            if y != doorway_y:
+                self.grid.set(mid, y, Wall())
 
-        # goal
-        self.put_obj(Goal(), width - 2, height - 2)
+        # 3) Place agent randomly
+        self.place_agent()
 
-        # place agent
-        if self.agent_start_pos is not None:
-            self.agent_pos = self.agent_start_pos
-            self.agent_dir = self.agent_start_dir
-        else:
-            self.place_agent()
+        # 4) Place goal randomly in a free cell
+        self.place_obj(Goal())
 
+        # 5) Mission text
         self.mission = "navigate through the gap and reach the goal"
