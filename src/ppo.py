@@ -6,6 +6,8 @@ import torch.optim as optim
 from .actor_critic import MLPActorCritic, CNNActorCritic
 from .rollout_buffer import RolloutBuffer
 
+from src.metrics.ppo_metrics import aggregate_ppo_update_metrics
+
 
 class PPO:
     def __init__(
@@ -188,19 +190,17 @@ class PPO:
 
                 nbatches += 1
 
-        metrics = {
-            "pi_loss": total_pi / nbatches,
-            "v_loss": total_v / nbatches,
-            "entropy": total_ent / nbatches,
-            "kl": total_kl / nbatches,
-            "clipfrac": total_clip / nbatches,
-            "gradnorm": total_gnorm / nbatches,
-        }
 
-        print(metrics)
-        
+        return aggregate_ppo_update_metrics(
+            total_pi,
+            total_v,
+            total_ent,
+            total_kl,
+            total_clip,
+            total_gnorm,
+            nbatches
+        )
 
-        return metrics
 
 
     def train(self, total_steps=100_000):

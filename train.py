@@ -17,6 +17,7 @@ from src.ppo import PPO
 from src.utils import get_device
 from src.scenario_creator.scenario_creator import ScenarioCreator
 
+from src.metrics.ppo_metrics import compute_episode_stats
 
 # ================================================================
 # Argument Parser
@@ -44,7 +45,7 @@ def parse_args():
     parser.add_argument("--visual_eval", action="store_true",
                         help="Render agent visually after training")
 
-    parser.add_argument("--print_interval", type=int, default=100,
+    parser.add_argument("--print_interval", type=int, default=2048,
                         help="Console print frequency (in steps)")
 
     parser.add_argument(
@@ -224,12 +225,14 @@ def train_minigrid(args):
         writer_tb.add_scalar("diagnostics/clipfrac", update_stats["clipfrac"], step_count)
         writer_tb.add_scalar("diagnostics/gradnorm", update_stats["gradnorm"], step_count)
 
-        if len(agent.episode_returns) > 0:
-            writer_tb.add_scalar("stats/episode_return_mean",
-                                 np.mean(agent.episode_returns[-10:]), step_count)
-            writer_tb.add_scalar("stats/episode_length_mean",
-                                 np.mean(agent.episode_lengths[-10:]), step_count)
+        stats = compute_episode_stats(
+            agent.episode_returns[-10:],
+            agent.episode_lengths[-10:]
+        )
 
+        writer_tb.add_scalar("stats/episode_return_mean", stats["episode_return_mean"], step_count)
+        writer_tb.add_scalar("stats/episode_length_mean", stats["episode_length_mean"], step_count)
+        
         if len(agent.episode_returns) >= 10:
             writer_tb.add_histogram("hist/episode_rewards",
                                     np.array(agent.episode_returns[-50:]),
@@ -245,7 +248,7 @@ def train_minigrid(args):
             plt.title("Reward vs Episode Length")
             writer_tb.add_figure("fig/reward_vs_steps", fig, step_count)
             plt.close(fig)
-
+        print(step_count)
         if step_count % args.print_interval == 0 or step_count >= args.total_steps:
             total_loss = update_stats["pi_loss"] + update_stats["v_loss"]
 
