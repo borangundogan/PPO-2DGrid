@@ -1,108 +1,161 @@
-# PPO: Proximal Policy Optimization for MiniGrid Tasks
+# PPO: Modular PPO Pipeline for MiniGrid & Meta-RL Research
 
-PPO is a clean, modular, and research-grade PPO pipeline focused on **MiniGrid** environments. It combines scenario generation, observation preprocessing, reduced action-spaces, logging, and cross-task evaluation to serve as a foundation for MiniGrid-based RL and Meta-RL research.
+This repository provides a clean, extensible, and research-grade PPO implementation designed for MiniGrid and task-distribution evaluation. It is built to support curriculum learning, Meta-RL experiments, and quantitative cross-task analysis.
 
-## Main Features
+## Features
 1. **PPO Implementation (from scratch)**
-   - Clipped surrogate loss with GAE advantages and shared actor–critic trunk
-   - KL divergence, clip fraction, entropy, and gradient-norm diagnostics
-   - Full TensorBoard integration for scalar/histogram/scatter summaries
+   - Clipped surrogate objective
+   - GAE advantage estimator
+   - Shared actor–critic backbone
+   - CNN/MLP auto-switch based on observation shape
+   - Gradient norm clipping
+   - Full diagnostics: KL divergence, clip fraction, entropy decay, value loss, policy loss, gradient norm
+   - Recorded directly into TensorBoard under `loss/` and `diagnostics/`
 
 2. **ScenarioCreator Framework**
-   - YAML-driven environment builder (`src/config/scenario.yaml`) with auto train/test render modes
-   - Supports fixed-size validation sets, partial/fully observable pipelines, and flattening
+   - All environments are created from a single YAML file: `src/config/scenario.yaml`
+   - Defines task difficulties (easy, medium, hard, hardest)
+   - Defines observation mode: partial or full observation, flatten vs CNN
+   - All environments validated to fixed-size grids
+   - Train/test environments follow the same settings
    - Example:
      ```yaml
      difficulties:
-       easy: MiniGrid-Empty-6x6-v0
-       medium: MiniGrid-Empty-Random-6x6-v0
-       hard: MiniGrid-Dynamic-Obstacles-6x6-v0
+       easy:
+         env_id: "Grid-Easy-16x16-v0"
+       medium:
+         env_id: "Grid-Medium-16x16-v0"
+       hard:
+         env_id: "Grid-Hard-16x16-v0"
+       hardest:
+         env_id: "Grid-Hardest-16x16-v0"
 
      observation:
        fully_observable: false
        flatten: true
      ```
 
-3. **Three-Action Wrapper**
-   - Remaps PPO actions to the minimal set required by most MiniGrid tasks:
+3. **Custom MiniGrid Environments**
+   - Implemented under `src/custom_envs/`
+   - Current difficulty set:
+     - Easy: empty 16×16 grid
+     - Medium: random internal walls
+     - Hard: vertical wall split with a passage and random goal
+     - Hardest: four-rooms maze, fully connected, random obstacles and random start/goal
+   - All are deterministic and reproducible
 
-     | Index | Action      |
-     | ----- | ----------- |
-     | 0     | turn left   |
-     | 1     | turn right  |
-     | 2     | move forward|
+4. **Three-Action Wrapper**
+   - `src/wrappers/three_action_wrapper.py`
+   - Normal MiniGrid has many actions; PPO learns faster with a minimal action space:
 
-   - Simplifies policy learning and improves cross-difficulty generalization.
+     | ID | Action      |
+     | -- | ----------- |
+     | 0  | turn left   |
+     | 1  | turn right  |
+     | 2  | move forward|
 
-4. **Actor-Critic Architectures**
-   - `MLPActorCritic` for flattened observations
-   - `CNNActorCritic` with dynamic convolutional heads for image-based PPO
+   - Applies to all environments
 
-5. **Training Pipeline**
-   - Timestamped checkpoints, automatic run-ID creation, frequent progress prints
-   - TensorBoard scalars: policy loss, value loss, entropy, KL, clip fraction, episodic returns/lengths
-   - Histogram + scatter tracking for deeper optimization insight
+5. **Modular Actor-Critic Networks**
+   - `src/wrappers/actor_critic.py`
+   - `MLPActorCritic` for flattened input
+   - `CNNActorCritic` for image input (HxWxC)
+   - Automatic normalization (uint8 → [0,1])
+   - Automatic shape detection during PPO initialization
 
-6. **Evaluation Pipeline**
-   - Auto-loads latest checkpoint per difficulty/run
-   - Cross-difficulty evaluation with normalized forward pass
-   - Human render mode and compatibility with the three-action wrapper
+6. **Logging & Metrics System**
+   - TensorBoard logs include:
+     - Scalars: `loss/policy_loss`, `loss/value_loss`, `loss/entropy`, `diagnostics/kl`, `diagnostics/clipfrac`, `diagnostics/gradnorm`, `stats/episode_return_mean`, `stats/episode_length_mean`
+     - Histograms: `hist/episode_rewards`, `hist/episode_lengths`
+     - Figures: scatter plot Reward vs Episode Length logged as `fig/reward_vs_steps`
+   - PPO update metrics refactored in `src/metrics/ppo_metrics.py` for clean aggregation and reuse
+
+7. **Complete Training Pipeline**
+   - `train.py`
+   - Timestamped Run-IDs
+   - Automatic checkpoint saving: `checkpoints/<env>_<difficulty>_<timestamp>/ppo_model.pth`
+   - TensorBoard directory: `tb_logs/<env>_<difficulty>_<timestamp>/`
+   - Supports per-step logging, per-N-steps printing (`--print_interval`), live evaluation after each PPO update, and visual evaluation mode
+   - Example:
+     ```bash
+     uv run python train.py \
+       --difficulty medium \
+       --total_steps 500000 \
+       --batch_size 4096 \
+       --minibatch_size 512 \
+       --eval_episodes 5
+     ```
+
+8. **Evaluation Pipeline**
+   - `test.py`
+   - Loads latest checkpoint automatically
+   - Supports manual model path override
+   - Cross-difficulty generalization tests
+   - Uses consistent CNN/MLP preprocessing
+   - Supports human rendering
+   - Example:
+     ```bash
+     uv run python test.py --difficulty hard
+     ```
+
+   - Or, test a model trained on medium in the hard environment:
+     ```bash
+     uv run python test.py \
+       --difficulty hard \
+       --model_path checkpoints/Grid-Medium-16x16-v0_medium_20251120_143903/ppo_model.pth
+     ```
 
 ## Project Structure
 ```
 src/
-├── actor_critic.py            # MLP + CNN policy/value networks
-├── ppo.py                     # PPO algorithm (updates, rollouts, advantages)
-├── utils.py                   # Device helpers, normalization, rollout buffers
 ├── config/
-│   └── scenario.yaml          # ScenarioCreator configuration
+│   └── scenario.yaml
+│
+├── custom_envs/
+│   ├── easy_env.py
+│   ├── medium_env.py
+│   ├── hard_env.py
+│   └── hardest_env.py
+│
 ├── scenario_creator/
-│   └── scenario_creator.py    # YAML-driven environment builder
+│   └── scenario_creator.py
+│
 ├── wrappers/
-│   └── three_action_wrapper.py# Reduced action-space wrapper
-├── train.py                   # Training entrypoint
-└── test.py                    # Evaluation / cross-task testing
+│   ├── actor_critic.py
+│   ├── rollout_buffer.py
+│   ├── three_action_wrapper.py
+│   └── utils.py
+│
+├── metrics/
+│   └── ppo_metrics.py
+│
+├── ppo.py
+├── train.py
+└── test.py
 ```
 
-## Example Usage
-### Train
-```bash
-uv run python train.py \
-    --difficulty easy \
-    --total_steps 300000 \
-    --batch_size 4096 \
-    --minibatch_size 512 \
-    --update_epochs 6 \
-    --lr 2.5e-4 \
-    --ent_coef 0.005 \
-    --vf_coef 0.5 \
-    --device cpu
-```
-
-### Test (auto-load latest checkpoint)
-```bash
-uv run python test.py --difficulty easy
-```
-
-### Cross-scenario testing
-```bash
-uv run python test.py \
-    --difficulty medium \
-    --model_path checkpoints/MiniGrid-Empty-6x6-v0_easy_xxxxxx/ppo_model.pth
-```
-
-## Results Summary
-| Train Env      | Test Env                                 | Average Reward |
-| -------------- | ---------------------------------------- | -------------- |
-| Easy (Empty)   | Easy                                     | 0.937          |
-| Easy           | Medium (Empty-Random)                    | 0.967          |
-| Easy           | Hard (Dynamic Obstacles)                 | -0.604         |
+## Results Summary (Example Run)
+| Train Env | Test Env | Avg Reward |
+| --------- | -------- | ---------- |
+| Easy      | Easy     | 0.94–0.96  |
+| Medium    | Medium   | 0.92–0.95  |
+| Medium    | Hard     | ~0.45      |
+| Medium    | Hardest  | Fails      |
 
 **Interpretation**
-- PPO masters 6×6 Empty navigation, including random spawn generalization.
-- Curriculum or harder training distributions are needed for Dynamic Obstacles.
+- PPO learns Empty and Random-Spawn tasks reliably.
+- Generalization to Hard and Hardest is non-trivial—expected.
+- This gap is what Meta-RL will address (MAML / PEARL / RL²).
 
 ## Getting Started
-1. Install dependencies with `uv pip sync` (or your preferred environment manager).
-2. Adjust `src/config/scenario.yaml` to design new task suites.
-3. Run training/evaluation commands above and monitor TensorBoard in `tb_logs`.
+- Install dependencies: `uv pip sync`
+- Train: `uv run python train.py --difficulty medium`
+- View logs: `tensorboard --logdir tb_logs`
+- Test: `uv run python test.py --difficulty medium`
+
+## Future Extensions
+- MAML / FOMAML-based Meta-RL
+- RL² recurrent policies
+- Task-embedding networks
+- Distribution shift analysis (KL, JS, Wasserstein)
+- Curriculum learning pipelines
