@@ -41,9 +41,7 @@ class ScenarioCreator:
         # Validate this once here to avoid silent mismatches.
         self._validate_grid_sizes()
 
-    # ----------------------------------------------------------
     # Validate fixed-size requirement
-    # ----------------------------------------------------------
     def _validate_grid_sizes(self):
         """
         Ensure all envs follow fixed grid size (MERLIN_C2).
@@ -69,9 +67,7 @@ class ScenarioCreator:
             )
         print(f"[ScenarioCreator] All environments validated as fixed-size: {sizes}")
 
-    # ----------------------------------------------------------
     # Main environment creation
-    # ----------------------------------------------------------
     def create_env(self, difficulty: str = "easy"):
         cfg = self.config["difficulties"].get(difficulty)
         if cfg is None:
@@ -109,9 +105,7 @@ class ScenarioCreator:
         env = ThreeActionWrapper(env)
         return env
 
-    # ----------------------------------------------------------
     # Evaluation sampling for unseen maps (Meta-RL later)
-    # ----------------------------------------------------------
     def sample_scenarios(self, n: int = 5, difficulty: str = "easy"):
         """Generate multiple randomized environments for evaluation."""
         scenarios = []
@@ -124,9 +118,7 @@ class ScenarioCreator:
         # For Meta-RL later, this will be used as task distribution sampling.
         return scenarios
 
-    # ----------------------------------------------------------
     # Accessors
-    # ----------------------------------------------------------
     def get_env_id(self, difficulty: str) -> str:
         return self.config["difficulties"][difficulty]["env_id"]
 

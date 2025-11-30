@@ -3,9 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 
-# ----------------------------------------------------------
 # CNN Feature Extractor (Dynamic output dim)
-# ----------------------------------------------------------
 class CNNFeatureExtractor(nn.Module):
     def __init__(self, obs_shape, input_channels=3):
         """
@@ -20,7 +18,7 @@ class CNNFeatureExtractor(nn.Module):
             nn.GELU(),
         )
 
-        # ---- DYNAMIC FEATURE SIZE COMPUTATION ----
+        # DYNAMIC FEATURE SIZE COMPUTATION
         # Create dummy input: (1, C, H, W)
         dummy = torch.zeros(
             1,
@@ -34,7 +32,6 @@ class CNNFeatureExtractor(nn.Module):
 
         # Compute flattened size
         self.output_dim = out.numel()
-        # ------------------------------------------------------
 
     def forward(self, x):
         """
@@ -46,9 +43,7 @@ class CNNFeatureExtractor(nn.Module):
         return x.reshape(x.size(0), -1)  # flatten
         
 
-# ----------------------------------------------------------
 # MLP Policy + Critic (Flattened input)
-# ----------------------------------------------------------
 class MLPActorCritic(nn.Module):
     def __init__(self, obs_dim, act_dim, hidden_dim=64, dropout=0.1):
         super().__init__()
@@ -74,9 +69,7 @@ class MLPActorCritic(nn.Module):
             nn.Linear(hidden_dim, 1),
         )
 
-    # --------------------------------------------------
     # PPO-compatible API
-    # --------------------------------------------------
     def act(self, obs):
         """
         obs: (B, obs_dim)
@@ -101,9 +94,7 @@ class MLPActorCritic(nn.Module):
         return logp, entropy, value
 
 
-# ----------------------------------------------------------
 # CNN Policy + Critic (Image input)
-# ----------------------------------------------------------
 class CNNActorCritic(nn.Module):
     def __init__(self, obs_shape, act_dim, hidden_dim=256):
         """
@@ -129,16 +120,12 @@ class CNNActorCritic(nn.Module):
             nn.Linear(hidden_dim, 1),
         )
 
-    # --------------------------------------------------
     # helpers
-    # --------------------------------------------------
     def _extract(self, obs):
         # obs: (B, H, W, C)
         return self.feature_extractor(obs)
 
-    # --------------------------------------------------
     # PPO API
-    # --------------------------------------------------
     def act(self, obs):
         features = self._extract(obs)
         probs = self.actor(features)

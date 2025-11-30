@@ -2,7 +2,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 
-# ---------- Small container for rollouts ----------
+# Small container for rollouts 
 class RolloutBuffer:
     def __init__(self):
         self.states = []

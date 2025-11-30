@@ -44,11 +44,9 @@ class BaseCustomEnv(MiniGridEnv):
     def _gen_mission():
         return "reach the goal"
 
-    # ----------------------------------------------------------------------
     # IMPORTANT:
     # Subclasses must override this function to generate the grid layout.
     # width/height == size
-    # ----------------------------------------------------------------------
     def _gen_grid(self, width, height):
         raise NotImplementedError(
             "Subclasses must implement _gen_grid() to define environment layout."
