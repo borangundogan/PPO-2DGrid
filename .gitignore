@@ -13,3 +13,5 @@ tb_logs/
 checkpoints/
 
 .DS_Store
+
+analysis_results/
