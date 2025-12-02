@@ -7,6 +7,7 @@ from .easy_env import EasyEnv
 from .medium_env import MediumEnv
 from .hard_env import HardEnv
 from .hardest_env import HardestEnv
+from .medium_hard_env import MediumHardEnv
 
 
 
@@ -19,6 +20,11 @@ gym.register(
 gym.register(
     id="MERLIN-Medium-16x16-v0",
     entry_point="src.custom_envs.medium_env:MediumEnv",
+)
+
+gym.register(
+    id="MERLIN-MediumHard-16x16-v0",
+    entry_point="src.custom_envs.medium_hard_env:MediumHardEnv",
 )
 
 gym.register(
