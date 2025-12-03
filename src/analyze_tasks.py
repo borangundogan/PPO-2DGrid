@@ -16,10 +16,7 @@ from src.metrics.task_metrics import compare_task_feature_dict
 from src.utils import get_device
 from src.actor_critic import MLPActorCritic, CNNActorCritic
 
-
-# ===============================================================
 # Utility: extract logits as features
-# ===============================================================
 def extract_feature_vector(policy, obs_t):
     """Return actor logits (pre-softmax), which exist for both MLP and CNN."""
     with torch.no_grad():
@@ -32,9 +29,7 @@ def extract_feature_vector(policy, obs_t):
             raise ValueError("Unknown policy class.")
 
 
-# ===============================================================
 # Collect features from environment
-# ===============================================================
 def collect_features(env, policy, device, num_steps=2000):
     obs, _ = env.reset()
     obs = np.array(obs, dtype=np.float32)
@@ -66,9 +61,7 @@ def collect_features(env, policy, device, num_steps=2000):
     return np.array(feats)   # (N, act_dim)
 
 
-# ===============================================================
 # Load policy
-# ===============================================================
 def load_policy(model_path, sample_obs, act_dim, device):
     if sample_obs.ndim == 1:
         obs_dim = int(np.prod(sample_obs.shape))
@@ -82,9 +75,7 @@ def load_policy(model_path, sample_obs, act_dim, device):
     return policy
 
 
-# ===============================================================
 # Visualization utilities
-# ===============================================================
 def plot_kde(feats_a, feats_b, name_a, name_b, save_path):
     """Single-dimension KDE over mean of logits."""
     p = feats_a.mean(axis=1)
@@ -123,9 +114,7 @@ def plot_mean_std(feats_a, feats_b, name_a, name_b, save_path):
     plt.close()
 
 
-# ===============================================================
 # Main Analyze Script
-# ===============================================================
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--model_path", type=str, required=True)

@@ -1,4 +1,4 @@
-# src/custom_envs/mid_env.py
+# src/custom_envs/medium_hard_env.py
 
 from __future__ import annotations
 
