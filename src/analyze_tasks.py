@@ -4,7 +4,7 @@ from __future__ import annotations
 import argparse
 import os
 from datetime import datetime
-from typing import Dict
+from typing import Dict, List
 
 import numpy as np
 import torch
@@ -12,133 +12,112 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 
 from src.scenario_creator.scenario_creator import ScenarioCreator
-from src.metrics.task_metrics import compare_task_feature_dict
+from src.metrics.task_metrics import compare_two_feature_sets
 from src.utils import get_device
 from src.actor_critic import MLPActorCritic, CNNActorCritic
 
-# Utility: extract logits as features
-def extract_feature_vector(policy, obs_t):
-    """Return actor logits (pre-softmax), which exist for both MLP and CNN."""
-    with torch.no_grad():
-        if isinstance(policy, MLPActorCritic):
-            x = policy.actor[:-1](obs_t)    # up to last Linear
-            logits = policy.actor[-1](x)    # final Linear layer
-            return logits.cpu().numpy()[0]
 
-        else:
-            raise ValueError("Unknown policy class.")
+# Reward toplama (artık feature extraction yok)
+def collect_rewards(env, policy, device, num_episodes=50):
+    rewards = []
 
-
-# Collect features from environment
-def collect_features(env, policy, device, num_steps=2000):
-    obs, _ = env.reset()
-    obs = np.array(obs, dtype=np.float32)
-
-    feats = []
-    for _ in range(num_steps):
-        obs_t = torch.tensor(obs, dtype=torch.float32, device=device)
-        if obs.ndim == 3:       # image
-            obs_t = obs_t.unsqueeze(0) / 255.0
-        else:
-            obs_t = obs_t.view(1, -1) / 255.0
-
-        feats.append(extract_feature_vector(policy, obs_t))
-
-        # step with greedy policy
-        with torch.no_grad():
-            if obs.ndim == 3:
-                logits = policy.actor(policy.cnn(obs_t.permute(0,3,1,2)))
-            else:
-                logits = policy.actor(obs_t)
-            action = torch.argmax(logits).item()
-
-        obs, _, terminated, truncated, _ = env.step(action)
+    for _ in range(num_episodes):
+        obs, _ = env.reset()
         obs = np.array(obs, dtype=np.float32)
-        if terminated or truncated:
-            obs, _ = env.reset()
+        done = False
+        ep_reward = 0
+
+        while not done:
+            obs_t = torch.tensor(obs, dtype=torch.float32, device=device)
+
+            if obs.ndim == 3:
+                obs_t = obs_t.unsqueeze(0) / 255.0
+            else:
+                obs_t = obs_t.view(1, -1) / 255.0
+
+            with torch.no_grad():
+                logits = policy.actor(obs_t)
+                action = torch.argmax(logits).item()
+
+            obs, reward, terminated, truncated, _ = env.step(action)
             obs = np.array(obs, dtype=np.float32)
 
-    return np.array(feats)   # (N, act_dim)
+            ep_reward += reward
+            done = terminated or truncated
+
+        rewards.append(ep_reward)
+
+    return np.array(rewards)
 
 
-# Load policy
+
+# PPO model
 def load_policy(model_path, sample_obs, act_dim, device):
     if sample_obs.ndim == 1:
         obs_dim = int(np.prod(sample_obs.shape))
         policy = MLPActorCritic(obs_dim, act_dim).to(device)
     else:
-        obs_shape = sample_obs.shape
-        policy = CNNActorCritic(obs_shape, act_dim).to(device)
+        policy = CNNActorCritic(sample_obs.shape, act_dim).to(device)
 
     policy.load_state_dict(torch.load(model_path, map_location=device))
     policy.eval()
     return policy
 
 
-# Visualization utilities
-def plot_kde(feats_a, feats_b, name_a, name_b, save_path):
-    """Single-dimension KDE over mean of logits."""
-    p = feats_a.mean(axis=1)
-    q = feats_b.mean(axis=1)
-
+# Reward-based KDE plot
+def plot_reward_kde(r1, r2, name1, name2, save_path):
     plt.figure(figsize=(7,5))
-    sns.kdeplot(p, label=name_a, color="blue", linewidth=2)
-    sns.kdeplot(q, label=name_b, color="orange", linewidth=2)
-    plt.title(f"Distribution Comparison: {name_a} vs {name_b}")
-    plt.xlabel("Mean Logit Activation")
+    sns.kdeplot(r1, label=name1, linewidth=2)
+    sns.kdeplot(r2, label=name2, linewidth=2)
+    plt.title(f"Reward Distribution: {name1} vs {name2}")
+    plt.xlabel("Episode Return")
     plt.ylabel("Density")
-    plt.legend()
     plt.grid(True, alpha=0.3)
+    plt.legend()
     plt.tight_layout()
     plt.savefig(save_path)
     plt.close()
 
 
-def plot_mean_std(feats_a, feats_b, name_a, name_b, save_path):
-    """Plot smooth mean curves like second figure."""
-    mean_a = feats_a.mean(axis=0)
-    mean_b = feats_b.mean(axis=0)
-
-    x = np.arange(len(mean_a))
+# Bar chart of mean rewards
+def plot_reward_bars(reward_dict, save_path):
+    tasks = list(reward_dict.keys())
+    means = [np.mean(reward_dict[t]) for t in tasks]
+    stds  = [np.std(reward_dict[t]) for t in tasks]
 
     plt.figure(figsize=(7,5))
-    plt.plot(x, mean_a, label=f"{name_a}", color="red")
-    plt.plot(x, mean_b, label=f"{name_b}", color="green")
-    plt.title(f"Mean Comparison: {name_a} vs {name_b}")
-    plt.xlabel("Feature dimension")
-    plt.ylabel("Mean activation")
+    plt.bar(tasks, means, yerr=stds, capsize=6)
+    plt.title("Mean Episode Reward per Task")
+    plt.ylabel("Mean Reward")
     plt.grid(True, alpha=0.3)
-    plt.legend()
     plt.tight_layout()
     plt.savefig(save_path)
     plt.close()
 
 
-# Main Analyze Script
+# Main
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--model_path", type=str, required=True)
     parser.add_argument("--difficulties", nargs="+", required=True)
-    parser.add_argument("--num_steps", type=int, default=2000)
+    parser.add_argument("--episodes", type=int, default=50)
     args = parser.parse_args()
 
     device = get_device("auto")
 
-    # Directory for saving results
+    # Output directory
     model_name = args.model_path.split("/")[-2]
     out_dir = f"analysis_results/{model_name}"
     os.makedirs(out_dir, exist_ok=True)
 
-    # ScenarioCreator
+    # Scenario creator
     sc = ScenarioCreator("src/config/scenario.yaml")
 
-    feature_dict: Dict[str, np.ndarray] = {}
+    reward_dict: Dict[str, np.ndarray] = {}
 
-    print("[ScenarioCreator] All environments validated as fixed-size:", sc.get_env_id)
-
-    # loop over difficulties
+    # Collect reward distributions
     for diff in args.difficulties:
-        print(f"===== Generating features for: {diff} =====")
+        print(f"[Collecting] {diff}")
 
         env = sc.create_env(diff)
         sample_obs, _ = env.reset()
@@ -147,26 +126,32 @@ def main():
 
         policy = load_policy(args.model_path, sample_obs, act_dim, device)
 
-        feats = collect_features(env, policy, device, num_steps=args.num_steps)
-        feature_dict[diff] = feats
+        rewards = collect_rewards(env, policy, device, num_episodes=args.episodes)
+        reward_dict[diff] = rewards
 
-    # compute metrics
-    results = compare_task_feature_dict(feature_dict)
+    # Save bar chart
+    plot_reward_bars(reward_dict, f"{out_dir}/reward_bar_chart.png")
 
-    print("\n====== TASK DISTRIBUTION METRICS ======\n")
-    for (a, b), metrics in results.items():
-        print(f"{a} vs {b}")
-        for k, v in metrics.items():
-            print(f"   {k:20s}: {v:.6f}")
-        print()
+    # Pairwise comparison + KDE + metrics
+    keys = list(reward_dict.keys())
+    print("\n===== TASK DISTRIBUTION METRICS (REWARD-BASED) =====\n")
 
-        # Save KDE plot
-        plot_kde(feature_dict[a], feature_dict[b],
-                 a, b, f"{out_dir}/{a}_vs_{b}_kde.png")
+    for i in range(len(keys)):
+        for j in range(i+1, len(keys)):
+            a, b = keys[i], keys[j]
+            r1, r2 = reward_dict[a], reward_dict[b]
 
-        # Save mean-std plot
-        plot_mean_std(feature_dict[a], feature_dict[b],
-                      a, b, f"{out_dir}/{a}_vs_{b}_mean.png")
+            plot_reward_kde(r1, r2, a, b, f"{out_dir}/{a}_vs_{b}_reward_kde.png")
+
+            metrics = compare_two_feature_sets(
+                r1.reshape(-1,1),   # reward is 1D → reshape to (N,1)
+                r2.reshape(-1,1)
+            )
+
+            print(f"{a} vs {b}")
+            for k, v in metrics.items():
+                print(f"   {k:20s}: {v:.6f}")
+            print()
 
     print(f"\nSaved all figures to: {out_dir}/")
 
