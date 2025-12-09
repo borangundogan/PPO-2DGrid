@@ -31,6 +31,9 @@ def parse_args():
     parser.add_argument("--no-render", action="store_true",
                         help="Disable visual rendering")
 
+    parser.add_argument("--seed", type=int, default=123,
+                    help="Random seed for evaluation environment")
+
     return parser.parse_args()
 
 
@@ -56,7 +59,7 @@ def find_latest_checkpoint(ckpt_root, env_name):
 # ============================================================
 # Build environment in HUMAN mode (visualize)
 # ============================================================
-def build_env_human(sc_gen, difficulty):
+def build_env_human(sc_gen, difficulty, seed=None):
     cfg = sc_gen.config["difficulties"][difficulty]
     params = cfg.get("params", {}).copy()
     params["render_mode"] = "human"
@@ -84,11 +87,13 @@ def build_env_human(sc_gen, difficulty):
 # ============================================================
 # TEST LOOP
 # ============================================================
-def test_agent(model_path, sc_gen, difficulty, device, episodes=10, render=True):
+def test_agent(model_path, sc_gen, difficulty, device, episodes=10, render=True, seed=None):
     print(f"[Test] Loading env: {difficulty}")
+    env = build_env_human(sc_gen, difficulty, seed)
+    
+    base_seed = seed if seed is not None else 0
 
-    env = build_env_human(sc_gen, difficulty)
-    obs_sample, _ = env.reset()
+    obs_sample, _ = env.reset(seed=base_seed)
     obs_sample = np.array(obs_sample, dtype=np.float32)
 
     if obs_sample.ndim == 3:
@@ -116,7 +121,7 @@ def test_agent(model_path, sc_gen, difficulty, device, episodes=10, render=True)
     rewards = []
 
     for ep in range(1, episodes + 1):
-        obs, _ = env.reset()
+        obs, _ = env.reset(seed=base_seed + ep)
         obs = np.array(obs, dtype=np.float32)
         done = False
         ep_reward = 0
@@ -155,7 +160,7 @@ def test_agent(model_path, sc_gen, difficulty, device, episodes=10, render=True)
 # ============================================================
 if __name__ == "__main__":
     args = parse_args()
-    device = get_device()
+    device = get_device("auto")
 
     sc_gen = ScenarioCreator(args.config)
     env_id = sc_gen.get_env_id(args.difficulty)
@@ -172,5 +177,7 @@ if __name__ == "__main__":
         difficulty=args.difficulty,
         device=device,
         episodes=args.episodes,
-        render=not args.no_render
+        render=not args.no_render,
+        seed=args.seed
     )
+

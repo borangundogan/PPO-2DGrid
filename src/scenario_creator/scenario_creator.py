@@ -68,7 +68,7 @@ class ScenarioCreator:
         print(f"[ScenarioCreator] All environments validated as fixed-size: {sizes}")
 
     # Main environment creation
-    def create_env(self, difficulty: str = "easy"):
+    def create_env(self, difficulty: str = "easy", seed = None):
         cfg = self.config["difficulties"].get(difficulty)
         if cfg is None:
             raise ValueError(f"Unknown difficulty: {difficulty}")
@@ -101,8 +101,12 @@ class ScenarioCreator:
             env = FlattenObservation(env)
             # print("[ScenarioCreator] FlattenObservation enabled (MLP input).")
 
-        env.reset(seed=self.seed)
         env = ThreeActionWrapper(env)
+
+        if seed is None:
+            seed = self.seed
+        env.reset(seed=seed)
+
         return env
 
     # Evaluation sampling for unseen maps (Meta-RL later)
@@ -110,8 +114,8 @@ class ScenarioCreator:
         """Generate multiple randomized environments for evaluation."""
         scenarios = []
         for i in range(n):
-            env = self.create_env(difficulty)
-            env.reset(seed=self.seed + i)
+            env = self.create_env(difficulty, seed=self.seed + i)
+            # env.reset(seed=self.seed + i)
             scenarios.append(env)
 
         # NOTE: In PPO-only stage, this is just evaluation sampling.

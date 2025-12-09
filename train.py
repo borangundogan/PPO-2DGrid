@@ -1,5 +1,4 @@
 import os
-import csv
 import time
 import argparse
 from datetime import datetime
@@ -8,6 +7,8 @@ import numpy as np
 import torch
 import gymnasium as gym
 import minigrid
+
+from src.utils import set_seed
 from gymnasium.wrappers import FlattenObservation
 from minigrid.wrappers import FullyObsWrapper, RGBImgPartialObsWrapper, ImgObsWrapper
 import matplotlib.pyplot as plt
@@ -55,17 +56,19 @@ def parse_args():
         choices=["easy", "medium", "hard", "hardest"],
         help="Environment difficulty level"
     )
+    parser.add_argument("--seed", type=int, default=123, help="Random seed for training and envs")
 
     return parser.parse_args()
 
 
 # ================================================================
-# Evaluation with PPO (MLP/CNN aware)
+# Evaluation with PPO
 # ================================================================
-def evaluate_policy(agent, env, episodes=3):
+def evaluate_policy(agent, env, episodes=3, seed=None):
     rewards = []
-    for _ in range(episodes):
-        obs, _ = env.reset()
+    base_seed = seed if seed is not None else 0
+    for ep in range(episodes):
+        obs, _ = env.reset(seed=base_seed + ep)
         obs = np.array(obs, dtype=np.float32)
         done = False
         total_reward = 0
@@ -157,14 +160,17 @@ def visualize_agent(agent, difficulty="easy", episodes=1):
 # Training Loop
 # ================================================================
 def train_minigrid(args):
+    set_seed(args.seed)
+    print(f"[Seed] Using seed = {args.seed}")
+    
     print("============================================================================================")
     device = get_device(args.device)
 
     sc_gen = ScenarioCreator("src/config/scenario.yaml")
-    env = sc_gen.create_env(difficulty=args.difficulty)
+    env = sc_gen.create_env(difficulty=args.difficulty, seed=args.seed)
     print(f"Loaded environment from ScenarioCreator | Difficulty: {args.difficulty}")
 
-    sample_obs, _ = env.reset()
+    sample_obs, _ = env.reset(seed=args.seed)
     sample_obs = np.array(sample_obs, dtype=np.float32)
     print(f"Sample obs shape: {sample_obs.shape}, min={sample_obs.min()}, max={sample_obs.max()}")
 
@@ -202,6 +208,8 @@ def train_minigrid(args):
     print(f"Run name: {run_id}")
     print("============================================================================================")
 
+    eval_env = sc_gen.create_env(args.difficulty, seed=args.seed + 999)
+
     while step_count < args.total_steps:
 
         agent.collect_rollouts()
@@ -209,8 +217,12 @@ def train_minigrid(args):
         update_stats = agent.update()
         step_count += agent.batch_size
 
-        eval_env = sc_gen.create_env(args.difficulty)
-        eval_rewards = evaluate_policy(agent, eval_env, episodes=args.eval_episodes)
+        eval_rewards = evaluate_policy(
+            agent,
+            eval_env,
+            episodes=args.eval_episodes,
+            seed=args.seed + 999
+        )
         avg_r = np.mean(eval_rewards)
 
         elapsed_min = (time.time() - start_time) / 60
