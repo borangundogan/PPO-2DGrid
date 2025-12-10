@@ -1,6 +1,6 @@
 #!/bin/bash
 
-SEEDS=("0" "1" "2" "3")
+SEEDS=("123", "124", "125")
 DIFFICULTY="easy"
 
 for S in "${SEEDS[@]}"; do
@@ -8,7 +8,9 @@ for S in "${SEEDS[@]}"; do
 
     uv run python train.py \
         --difficulty "$DIFFICULTY" \
-        --seed "$S"
+        --seed "$S" \
+        --total_steps 100000 \
+        --eval_episodes 2
 
     echo "Finished seed $S"
     echo "----------------------------------"

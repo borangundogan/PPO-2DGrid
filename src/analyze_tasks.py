@@ -3,8 +3,8 @@
 from __future__ import annotations
 import argparse
 import os
+from typing import Dict
 from datetime import datetime
-from typing import Dict, List
 
 import numpy as np
 import torch
@@ -13,16 +13,19 @@ import seaborn as sns
 
 from src.scenario_creator.scenario_creator import ScenarioCreator
 from src.metrics.task_metrics import compare_two_feature_sets
-from src.utils import get_device
+from src.utils import get_device, set_seed
 from src.actor_critic import MLPActorCritic, CNNActorCritic
 
 
-# Reward toplama (artık feature extraction yok)
-def collect_rewards(env, policy, device, num_episodes=50):
+# ============================================================
+# Collect deterministic reward distributions
+# ============================================================
+def collect_rewards(env, policy, device, num_episodes=50, seed=0):
     rewards = []
+    base = seed
 
-    for _ in range(num_episodes):
-        obs, _ = env.reset()
+    for ep in range(num_episodes):
+        obs, _ = env.reset(seed=base + ep)
         obs = np.array(obs, dtype=np.float32)
         done = False
         ep_reward = 0
@@ -50,8 +53,9 @@ def collect_rewards(env, policy, device, num_episodes=50):
     return np.array(rewards)
 
 
-
-# PPO model
+# ============================================================
+# Load PPO model
+# ============================================================
 def load_policy(model_path, sample_obs, act_dim, device):
     if sample_obs.ndim == 1:
         obs_dim = int(np.prod(sample_obs.shape))
@@ -64,9 +68,11 @@ def load_policy(model_path, sample_obs, act_dim, device):
     return policy
 
 
-# Reward-based KDE plot
+# ============================================================
+# KDE Plot
+# ============================================================
 def plot_reward_kde(r1, r2, name1, name2, save_path):
-    plt.figure(figsize=(7,5))
+    plt.figure(figsize=(7, 5))
     sns.kdeplot(r1, label=name1, linewidth=2)
     sns.kdeplot(r2, label=name2, linewidth=2)
     plt.title(f"Reward Distribution: {name1} vs {name2}")
@@ -79,13 +85,15 @@ def plot_reward_kde(r1, r2, name1, name2, save_path):
     plt.close()
 
 
-# Bar chart of mean rewards
+# ============================================================
+# Bar chart of mean episode rewards
+# ============================================================
 def plot_reward_bars(reward_dict, save_path):
     tasks = list(reward_dict.keys())
     means = [np.mean(reward_dict[t]) for t in tasks]
-    stds  = [np.std(reward_dict[t]) for t in tasks]
+    stds = [np.std(reward_dict[t]) for t in tasks]
 
-    plt.figure(figsize=(7,5))
+    plt.figure(figsize=(7, 5))
     plt.bar(tasks, means, yerr=stds, capsize=6)
     plt.title("Mean Episode Reward per Task")
     plt.ylabel("Mean Reward")
@@ -95,14 +103,18 @@ def plot_reward_bars(reward_dict, save_path):
     plt.close()
 
 
-# Main
+# ============================================================
+# MAIN
+# ============================================================
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--model_path", type=str, required=True)
     parser.add_argument("--difficulties", nargs="+", required=True)
     parser.add_argument("--episodes", type=int, default=50)
+    parser.add_argument("--seed", type=int, default=999, help="Evaluation seed")
     args = parser.parse_args()
 
+    set_seed(args.seed)
     device = get_device("auto")
 
     # Output directory
@@ -115,37 +127,51 @@ def main():
 
     reward_dict: Dict[str, np.ndarray] = {}
 
-    # Collect reward distributions
+    # ========================================================
+    # Collect reward sequences for each task
+    # ========================================================
     for diff in args.difficulties:
         print(f"[Collecting] {diff}")
 
-        env = sc.create_env(diff)
-        sample_obs, _ = env.reset()
+        env = sc.create_env(diff, seed=args.seed)
+
+        sample_obs, _ = env.reset(seed=args.seed)
         sample_obs = np.array(sample_obs, dtype=np.float32)
         act_dim = env.action_space.n
 
         policy = load_policy(args.model_path, sample_obs, act_dim, device)
 
-        rewards = collect_rewards(env, policy, device, num_episodes=args.episodes)
+        rewards = collect_rewards(
+            env,
+            policy,
+            device,
+            num_episodes=args.episodes,
+            seed=args.seed
+        )
+
         reward_dict[diff] = rewards
 
     # Save bar chart
     plot_reward_bars(reward_dict, f"{out_dir}/reward_bar_chart.png")
 
-    # Pairwise comparison + KDE + metrics
+    # ========================================================
+    # Pairwise comparisons
+    # ========================================================
     keys = list(reward_dict.keys())
     print("\n===== TASK DISTRIBUTION METRICS (REWARD-BASED) =====\n")
 
     for i in range(len(keys)):
-        for j in range(i+1, len(keys)):
+        for j in range(i + 1, len(keys)):
             a, b = keys[i], keys[j]
             r1, r2 = reward_dict[a], reward_dict[b]
 
+            # KDE plot
             plot_reward_kde(r1, r2, a, b, f"{out_dir}/{a}_vs_{b}_reward_kde.png")
 
+            # Compute distance metrics
             metrics = compare_two_feature_sets(
-                r1.reshape(-1,1),   # reward is 1D → reshape to (N,1)
-                r2.reshape(-1,1)
+                r1.reshape(-1, 1),
+                r2.reshape(-1, 1)
             )
 
             print(f"{a} vs {b}")
@@ -153,7 +179,7 @@ def main():
                 print(f"   {k:20s}: {v:.6f}")
             print()
 
-    print(f"\nSaved all figures to: {out_dir}/")
+    print(f"\nSaved all outputs to: {out_dir}/")
 
 
 if __name__ == "__main__":
