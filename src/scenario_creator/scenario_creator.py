@@ -25,10 +25,10 @@ class ScenarioCreator:
         with open(config_path, "r") as f:
             self.config = yaml.safe_load(f)
 
-        # --- Global seed for reproducibility ---
-        self.seed = self.config.get("seed", 42)
-        random.seed(self.seed)
-        np.random.seed(self.seed)
+        # # --- Global seed for reproducibility ---
+        # self.seed = self.config.get("seed", 42)
+        # random.seed(self.seed)
+        # np.random.seed(self.seed)
 
         # Extract optional sections
         self.global_cfg = self.config.get("global", {})
