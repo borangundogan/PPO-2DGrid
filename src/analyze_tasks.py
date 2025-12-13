@@ -17,9 +17,7 @@ from src.utils import get_device, set_seed
 from src.actor_critic import MLPActorCritic, CNNActorCritic
 
 
-# ============================================================
 # Collect deterministic reward distributions
-# ============================================================
 def collect_rewards(env, policy, device, num_episodes=50, seed=0):
     rewards = []
     base = seed
@@ -53,9 +51,7 @@ def collect_rewards(env, policy, device, num_episodes=50, seed=0):
     return np.array(rewards)
 
 
-# ============================================================
 # Load PPO model
-# ============================================================
 def load_policy(model_path, sample_obs, act_dim, device):
     if sample_obs.ndim == 1:
         obs_dim = int(np.prod(sample_obs.shape))
@@ -68,9 +64,7 @@ def load_policy(model_path, sample_obs, act_dim, device):
     return policy
 
 
-# ============================================================
 # KDE Plot
-# ============================================================
 def plot_reward_kde(r1, r2, name1, name2, save_path):
     plt.figure(figsize=(7, 5))
     sns.kdeplot(r1, label=name1, linewidth=2)
@@ -85,9 +79,7 @@ def plot_reward_kde(r1, r2, name1, name2, save_path):
     plt.close()
 
 
-# ============================================================
 # Bar chart of mean episode rewards
-# ============================================================
 def plot_reward_bars(reward_dict, save_path):
     tasks = list(reward_dict.keys())
     means = [np.mean(reward_dict[t]) for t in tasks]
@@ -103,9 +95,7 @@ def plot_reward_bars(reward_dict, save_path):
     plt.close()
 
 
-# ============================================================
-# MAIN
-# ============================================================
+# main
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--model_path", type=str, required=True)
@@ -117,19 +107,27 @@ def main():
     set_seed(args.seed)
     device = get_device("auto")
 
-    # Output directory
-    model_name = args.model_path.split("/")[-2]
-    out_dir = f"analysis_results/{model_name}"
+    # Model path structure: checkpoints / Experiment_Name / Seed_X / ppo_model.pth
+    path_parts = args.model_path.strip("/").split("/")
+    
+    if len(path_parts) >= 3:
+        experiment_name = path_parts[-3]
+        seed_name = path_parts[-2]
+        out_dir = os.path.join("analysis_results", experiment_name, seed_name)
+    else:
+        # Fallback for simpler paths
+        model_name = path_parts[-2]
+        out_dir = f"analysis_results/{model_name}"
+
     os.makedirs(out_dir, exist_ok=True)
+    print(f"[Output] Saving results to: {out_dir}")
 
     # Scenario creator
     sc = ScenarioCreator("src/config/scenario.yaml")
 
     reward_dict: Dict[str, np.ndarray] = {}
 
-    # ========================================================
     # Collect reward sequences for each task
-    # ========================================================
     for diff in args.difficulties:
         print(f"[Collecting] {diff}")
 
@@ -154,9 +152,7 @@ def main():
     # Save bar chart
     plot_reward_bars(reward_dict, f"{out_dir}/reward_bar_chart.png")
 
-    # ========================================================
     # Pairwise comparisons
-    # ========================================================
     keys = list(reward_dict.keys())
     print("\n===== TASK DISTRIBUTION METRICS (REWARD-BASED) =====\n")
 
