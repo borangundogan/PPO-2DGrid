@@ -20,9 +20,7 @@ from src.scenario_creator.scenario_creator import ScenarioCreator
 
 from src.metrics.ppo_metrics import compute_episode_stats
 
-# ================================================================
 # Argument Parser
-# ================================================================
 def parse_args():
     parser = argparse.ArgumentParser(description="Train PPO on MiniGrid environment")
 
@@ -57,13 +55,13 @@ def parse_args():
         help="Environment difficulty level"
     )
     parser.add_argument("--seed", type=int, default=123, help="Random seed for training and envs")
+    parser.add_argument("--group_timestamp", type=str, default=None, 
+                        help="Global timestamp from bash to group experiments")
 
     return parser.parse_args()
 
 
-# ================================================================
 # Evaluation with PPO
-# ================================================================
 def evaluate_policy(agent, env, episodes=3, seed=None):
     rewards = []
     base_seed = seed if seed is not None else 0
@@ -95,9 +93,7 @@ def evaluate_policy(agent, env, episodes=3, seed=None):
     return rewards
 
 
-# ================================================================
 # Visualize agent (MLP/CNN safe version)
-# ================================================================
 def visualize_agent(agent, difficulty="easy", episodes=1):
     print(f"[Visualize] Difficulty = {difficulty}")
 
@@ -156,9 +152,7 @@ def visualize_agent(agent, difficulty="easy", episodes=1):
     env.close()
 
 
-# ================================================================
 # Training Loop
-# ================================================================
 def train_minigrid(args):
     set_seed(args.seed)
     print(f"[Seed] Using seed = {args.seed}")
@@ -187,13 +181,22 @@ def train_minigrid(args):
         ent_coef=args.ent_coef,
         device=device,
     )
-
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    
     env_id = sc_gen.config["difficulties"][args.difficulty]["env_id"]
-    run_id = f"{env_id}_{args.difficulty}_{timestamp}"
 
-    ckpt_subdir = os.path.join(args.ckpt_dir, run_id)
-    tb_dir = os.path.join("tb_logs", run_id)
+    if args.group_timestamp:
+        timestamp = args.group_timestamp
+    else:
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+
+    experiment_name = f"{env_id}_{args.difficulty}_{timestamp}"
+
+    # checkpoints/ExperimentName/seed_123/
+    ckpt_subdir = os.path.join(args.ckpt_dir, experiment_name, f"seed_{args.seed}")
+    
+    # tb_logs/ExperimentName/seed_123/
+    tb_dir = os.path.join("tb_logs", experiment_name, f"seed_{args.seed}")
+
     os.makedirs(ckpt_subdir, exist_ok=True)
     os.makedirs(tb_dir, exist_ok=True)
 
@@ -204,8 +207,8 @@ def train_minigrid(args):
     start_time = time.time()
 
     print(f"Training started on {device} for {args.total_steps:,} total steps")
-    print(f"Environment: {env_id}")
-    print(f"Run name: {run_id}")
+    print(f"Experiment Group: {experiment_name}")
+    print(f"Saving to: {ckpt_subdir}")
     print("============================================================================================")
 
     eval_env = sc_gen.create_env(args.difficulty, seed=args.seed + 999)
@@ -260,7 +263,8 @@ def train_minigrid(args):
             plt.title("Reward vs Episode Length")
             writer_tb.add_figure("fig/reward_vs_steps", fig, step_count)
             plt.close(fig)
-        print(step_count)
+        
+        # Log frequency check
         if step_count % args.print_interval == 0 or step_count >= args.total_steps:
             total_loss = update_stats["pi_loss"] + update_stats["v_loss"]
 
