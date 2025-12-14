@@ -1,20 +1,18 @@
 import os
 import time
 import argparse
+import glob
 import numpy as np
 import torch
+import gymnasium as gym
 
 from src.actor_critic import MLPActorCritic, CNNActorCritic
 from src.utils import get_device
 from src.scenario_creator.scenario_creator import ScenarioCreator
 from minigrid.wrappers import FullyObsWrapper, RGBImgPartialObsWrapper, ImgObsWrapper
 from gymnasium.wrappers import FlattenObservation
-import gymnasium as gym
 
-
-# ============================================================
 # CLI
-# ============================================================
 def parse_args():
     parser = argparse.ArgumentParser(description="Test PPO model with ScenarioCreator")
 
@@ -37,29 +35,33 @@ def parse_args():
     return parser.parse_args()
 
 
-# ============================================================
-# Find latest model automatically
-# ============================================================
-def find_latest_checkpoint(ckpt_root, env_name):
+def find_latest_checkpoint(ckpt_root, env_name_filter=None):
     if not os.path.exists(ckpt_root):
         raise FileNotFoundError(f"Checkpoint root not found: {ckpt_root}")
 
-    candidates = [d for d in os.listdir(ckpt_root) if d.startswith(env_name)]
-    if not candidates:
-        raise FileNotFoundError(f"No checkpoints found for: {env_name}")
+    # Recursive olarak tüm alt klasörlerdeki 'ppo_model.pth' dosyalarını bul
+    # Örn: checkpoints/**/ppo_model.pth
+    search_pattern = os.path.join(ckpt_root, "**", "ppo_model.pth")
+    all_models = glob.glob(search_pattern, recursive=True)
 
-    def get_mtime(folder):
-        model_path = os.path.join(ckpt_root, folder, "ppo_model.pth")
-        return os.path.getmtime(model_path) if os.path.exists(model_path) else 0
+    if not all_models:
+        raise FileNotFoundError(f"No 'ppo_model.pth' found in {ckpt_root} or its subdirectories.")
 
-    latest_folder = sorted(candidates, key=get_mtime)[-1]
-    return os.path.join(ckpt_root, latest_folder, "ppo_model.pth")
+    # Eğer environment ismine göre filtreleme yapmak istersen (Opsiyonel)
+    if env_name_filter:
+        # Dosya yolunda env_name geçiyor mu diye bakar
+        all_models = [m for m in all_models if env_name_filter in m]
+        if not all_models:
+            raise FileNotFoundError(f"No models found matching filter: {env_name_filter}")
+
+    # Dosyaları değiştirilme zamanına (modification time) göre sırala
+    latest_model = max(all_models, key=os.path.getmtime)
+    
+    return latest_model
 
 
-# ============================================================
 # Build environment in HUMAN mode (visualize)
-# ============================================================
-def build_env_human(sc_gen, difficulty, seed=None):
+def build_env_human(sc_gen, difficulty):
     cfg = sc_gen.config["difficulties"][difficulty]
     params = cfg.get("params", {}).copy()
     params["render_mode"] = "human"
@@ -84,12 +86,11 @@ def build_env_human(sc_gen, difficulty, seed=None):
     return env
 
 
-# ============================================================
 # TEST LOOP
-# ============================================================
 def test_agent(model_path, sc_gen, difficulty, device, episodes=10, render=True, seed=None):
     print(f"[Test] Loading env: {difficulty}")
-    env = build_env_human(sc_gen, difficulty, seed)
+    # Seed parametresini buradan kaldırdık çünkü reset'te kullanıyoruz
+    env = build_env_human(sc_gen, difficulty)
     
     base_seed = seed if seed is not None else 0
 
@@ -114,6 +115,7 @@ def test_agent(model_path, sc_gen, difficulty, device, episodes=10, render=True,
         policy = MLPActorCritic(obs_dim, act_dim).to(device)
         print(f"[Test] Using MLPActorCritic, obs_dim={obs_dim}")
 
+    # Map location ekledik, CPU/GPU uyumsuzluğunu önler
     policy.load_state_dict(torch.load(model_path, map_location=device))
     policy.eval()
     print(f"[Test] Loaded weights: {model_path}")
@@ -121,6 +123,7 @@ def test_agent(model_path, sc_gen, difficulty, device, episodes=10, render=True,
     rewards = []
 
     for ep in range(1, episodes + 1):
+        # BURASI DOĞRU: Her episode farklı seed
         obs, _ = env.reset(seed=base_seed + ep)
         obs = np.array(obs, dtype=np.float32)
         done = False
@@ -143,7 +146,8 @@ def test_agent(model_path, sc_gen, difficulty, device, episodes=10, render=True,
             done = terminated or truncated
 
             if render:
-                time.sleep(0.08)
+                # Daha akıcı görünmesi için hızı biraz kıstım (0.05 vs 0.08)
+                time.sleep(0.05)
 
         rewards.append(ep_reward)
         print(f"[Test] Episode {ep}/{episodes} | Reward: {ep_reward:.3f}")
@@ -155,19 +159,23 @@ def test_agent(model_path, sc_gen, difficulty, device, episodes=10, render=True,
     env.close()
 
 
-# ============================================================
-# MAIN
-# ============================================================
 if __name__ == "__main__":
     args = parse_args()
     device = get_device("auto")
 
     sc_gen = ScenarioCreator(args.config)
-    env_id = sc_gen.get_env_id(args.difficulty)
+    
+    # env_id filtrelemesi opsiyonel, path karışıklığını önlemek için 
+    # bazen sadece ckpt_dir vermek daha güvenlidir.
+    env_id_filter = sc_gen.config["difficulties"][args.difficulty]["env_id"]
 
     if args.model_path is None:
-        model_path = find_latest_checkpoint(args.ckpt_dir, env_id)
-        print(f"[Test] Found latest checkpoint: {model_path}")
+        try:
+            model_path = find_latest_checkpoint(args.ckpt_dir, env_name_filter=None)
+            print(f"[Test] Auto-selected latest checkpoint: {model_path}")
+        except FileNotFoundError as e:
+            print(f"[Error] {e}")
+            exit(1)
     else:
         model_path = args.model_path
 
@@ -180,4 +188,3 @@ if __name__ == "__main__":
         render=not args.no_render,
         seed=args.seed
     )
-
