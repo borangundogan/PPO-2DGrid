@@ -1,15 +1,14 @@
 # src/meta/maml_vpg.py
 
 import torch
-from copy import deepcopy
+import torch.nn as nn
 
 from src.actor_critic import MLPActorCritic
-from .meta_utils import collect_episodes, compute_policy_loss
-
+from .meta_utils import collect_episodes, compute_policy_loss, fast_adapt
 
 class MAMLVPG:
     """
-    MAML with REINFORCE (VPG) inner loop.
+    MAML algorithm with REINFORCE (VPG) inner loop.
     """
 
     def __init__(
@@ -28,19 +27,18 @@ class MAMLVPG:
         # Meta-policy θ
         self.policy = MLPActorCritic(obs_dim, act_dim).to(device)
 
-        # Outer optimizer
+        # Outer loop optimizer
         self.outer_opt = torch.optim.Adam(
             self.policy.parameters(),
             lr=outer_lr
         )
 
-    # Inner adaptation
     def adapt(self, env, n_episodes: int, max_steps: int = 200):
         """
-        Perform one inner-loop gradient step on a single task.
-        Returns adapted policy θ'.
+        Perform one inner-loop gradient step.
+        Returns adapted policy θ' with gradient history connected to θ.
         """
-        # 1. Collect inner trajectories with current θ
+        # 1. Collect support trajectories with current θ
         trajs = collect_episodes(
             env,
             self.policy,
@@ -49,7 +47,7 @@ class MAMLVPG:
             max_steps,
         )
 
-        # 2. Compute inner loss
+        # 2. Compute inner loss (REINFORCE)
         inner_loss = compute_policy_loss(
             trajs,
             self.policy,
@@ -57,27 +55,19 @@ class MAMLVPG:
             self.device,
         )
 
-        # 3. Compute gradients - have to keep graph for second order derivation ! 
+        # 3. Compute gradients (create_graph=True is crucial for meta-learning)
         grads = torch.autograd.grad(
             inner_loss,
             self.policy.parameters(),
             create_graph=True,
+            allow_unused=True
         )
 
-        # 4. Create adapted policy θ'
-        adapted_policy = deepcopy(self.policy)
-
-        with torch.no_grad():
-            for p, g, p_new in zip(
-                self.policy.parameters(),
-                grads,
-                adapted_policy.parameters()
-            ):
-                p_new.copy_(p - self.inner_lr * g)
+        # 4. Create adapted policy θ' using graph-preserving helper
+        adapted_policy = fast_adapt(self.policy, grads, self.inner_lr)
 
         return adapted_policy
 
-    # Meta-update
     def meta_update(
         self,
         task_envs,
@@ -86,19 +76,20 @@ class MAMLVPG:
         max_steps: int = 200,
     ):
         """
-        One meta-update over a batch of tasks.
+        Perform one meta-update step over a batch of tasks.
         """
         meta_loss = 0.0
+        self.outer_opt.zero_grad()
 
         for env in task_envs:
-            # 1. Inner adaptation
+            # 1. Inner adaptation (θ -> θ')
             adapted_policy = self.adapt(
                 env,
                 n_episodes=inner_episodes,
                 max_steps=max_steps,
             )
 
-            # 2. Outer rollouts with θ'
+            # 2. Collect query trajectories with θ'
             outer_trajs = collect_episodes(
                 env,
                 adapted_policy,
@@ -107,7 +98,7 @@ class MAMLVPG:
                 max_steps,
             )
 
-            # 3. Outer loss (evaluated on θ')
+            # 3. Compute outer loss on θ'
             loss_outer = compute_policy_loss(
                 outer_trajs,
                 adapted_policy,
@@ -117,11 +108,15 @@ class MAMLVPG:
 
             meta_loss += loss_outer
 
+        # Average loss over the batch
         meta_loss = meta_loss / len(task_envs)
 
-        # 4. Meta optimization
-        self.outer_opt.zero_grad()
+        # 4. Meta-optimization (backprop through the adaptation step)
         meta_loss.backward()
+        
+        # Clip gradients to improve stability
+        torch.nn.utils.clip_grad_norm_(self.policy.parameters(), 1.0)
+        
         self.outer_opt.step()
 
         return meta_loss.item()

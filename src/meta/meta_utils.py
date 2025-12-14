@@ -2,11 +2,44 @@
 
 import numpy as np
 import torch
+from copy import deepcopy
 from typing import List, Tuple
-
 
 Trajectory = Tuple[np.ndarray, np.ndarray, np.ndarray]
 # (obs_seq, action_seq, reward_seq)
+
+
+def fast_adapt(network, grads, lr):
+    """
+    Creates a functional copy of the network.
+    Replaces parameters with (param - lr * grad) tensors to preserve the computational graph.
+    """
+    cloned_network = deepcopy(network)
+    
+    # Map parameter names to their computed gradients
+    param_grad_map = {name: g for (name, _), g in zip(network.named_parameters(), grads)}
+    
+    for name, param in list(cloned_network.named_parameters()):
+        if name in param_grad_map and param_grad_map[name] is not None:
+            grad = param_grad_map[name]
+            
+            # Get original parameter to maintain graph connection
+            orig_param = dict(network.named_parameters())[name]
+            
+            # Compute new parameter value (θ' = θ - α∇θ)
+            new_val = orig_param - lr * grad
+            
+            # Replace nn.Parameter with the computed Tensor
+            module_path = name.split('.')
+            sub_module = cloned_network
+            for p in module_path[:-1]:
+                sub_module = getattr(sub_module, p)
+            
+            # Remove original parameter and set the new tensor as an attribute
+            delattr(sub_module, module_path[-1])
+            setattr(sub_module, module_path[-1], new_val)
+            
+    return cloned_network
 
 
 def collect_episodes(
@@ -18,13 +51,6 @@ def collect_episodes(
 ) -> List[Trajectory]:
     """
     Collect episodes using the given policy in the environment.
-
-    Returns:
-        List of trajectories:
-          [
-            (obs_seq, act_seq, rew_seq),
-            ...
-          ]
     """
     trajectories = []
 
@@ -39,7 +65,6 @@ def collect_episodes(
         for _ in range(max_steps):
             obs_t = torch.tensor(obs, dtype=torch.float32, device=device)
 
-            # CNN vs MLP handling
             if obs.ndim == 3:
                 obs_t = obs_t.unsqueeze(0) / 255.0
             else:
@@ -92,8 +117,7 @@ def compute_policy_loss(
     device,
 ) -> torch.Tensor:
     """
-    REINFORCE loss:
-      L = -E[ G_t * log pi(a_t | s_t) ]
+    REINFORCE loss: L = -E[ G_t * log pi(a_t | s_t) ]
     """
     losses = []
 
@@ -104,7 +128,10 @@ def compute_policy_loss(
         act_t = torch.tensor(act_arr, dtype=torch.long, device=device)
         ret_t = torch.tensor(returns, dtype=torch.float32, device=device)
 
-        if obs_arr.ndim == 4:  # (T, H, W, C)
+        # Normalize returns for stability
+        ret_t = (ret_t - ret_t.mean()) / (ret_t.std() + 1e-8)
+
+        if obs_arr.ndim == 4:
             obs_t = obs_t / 255.0
         else:
             obs_t = obs_t.view(len(obs_arr), -1) / 255.0
@@ -113,7 +140,6 @@ def compute_policy_loss(
         dist = torch.distributions.Categorical(logits=logits)
         logp = dist.log_prob(act_t)
 
-        # loss func
         loss = -(logp * ret_t).mean()
         losses.append(loss)
 
