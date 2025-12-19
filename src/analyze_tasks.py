@@ -10,6 +10,8 @@ import numpy as np
 import torch
 import matplotlib.pyplot as plt
 import seaborn as sns
+import pandas as pd
+import matplotlib.ticker as ticker
 
 from src.scenario_creator.scenario_creator import ScenarioCreator
 from src.metrics.task_metrics import compare_two_feature_sets
@@ -63,19 +65,38 @@ def load_policy(model_path, sample_obs, act_dim, device):
     policy.eval()
     return policy
 
-
-# KDE Plot
-def plot_reward_kde(r1, r2, name1, name2, save_path):
-    plt.figure(figsize=(7, 5))
-    sns.kdeplot(r1, label=name1, linewidth=2)
-    sns.kdeplot(r2, label=name2, linewidth=2)
-    plt.title(f"Reward Distribution: {name1} vs {name2}")
-    plt.xlabel("Episode Return")
-    plt.ylabel("Density")
-    plt.grid(True, alpha=0.3)
-    plt.legend()
+def plot_reward_distribution(r1, r2, name1, name2, save_path):
+    plt.figure(figsize=(10, 6))
+    
+    data_df = pd.concat([
+        pd.DataFrame({"Episode Return": r1, "Task": name1}),
+        pd.DataFrame({"Episode Return": r2, "Task": name2})
+    ])
+    
+    sns.histplot(
+        data=data_df,
+        x="Episode Return",
+        hue="Task",
+        stat="probability",  
+        kde=False,            
+        bins=50,             
+        multiple="layer",    
+        element="step",      
+        palette=["#1f77b4", "#ff7f0e"], 
+        alpha=0.5,          
+        common_norm=False,    
+        linewidth=0.5         
+    )
+    
+    plt.ylabel("Probability", fontsize=12)
+    plt.xlabel("Episode Return", fontsize=12)
+    plt.title(f"Reward Distribution: {name1} vs {name2}", fontsize=14)
+    
+    plt.xlim(-0.02, 1.05)
+    plt.grid(True, linestyle=':', alpha=0.6) 
+    
     plt.tight_layout()
-    plt.savefig(save_path)
+    plt.savefig(save_path, dpi=300)
     plt.close()
 
 
@@ -91,7 +112,7 @@ def plot_reward_bars(reward_dict, save_path):
     plt.ylabel("Mean Reward")
     plt.grid(True, alpha=0.3)
     plt.tight_layout()
-    plt.savefig(save_path)
+    plt.savefig(save_path, dpi=300)
     plt.close()
 
 
@@ -161,8 +182,8 @@ def main():
             a, b = keys[i], keys[j]
             r1, r2 = reward_dict[a], reward_dict[b]
 
-            # KDE plot
-            plot_reward_kde(r1, r2, a, b, f"{out_dir}/{a}_vs_{b}_reward_kde.png")
+            # Generate probability distribution plot (replaces old KDE)
+            plot_reward_distribution(r1, r2, a, b, f"{out_dir}/{a}_vs_{b}_reward_dist.png")
 
             # Compute distance metrics
             metrics = compare_two_feature_sets(
