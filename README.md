@@ -100,28 +100,36 @@ uv run python train.py \
 
 ## 3. Quantitative Task-Distribution Analysis
 
-- Purpose: measure task similarity and generalization limits, not just average reward
-- Tool: `src/analyze_tasks.py`
-- What it does: evaluates a trained policy across multiple task families and collects 100+ episodes per task
-- Metrics: mean normalized difference, KL divergence (P||Q and Q||P), Jensen–Shannon divergence, Wasserstein distance
-- Outputs: KDE plots, mean/std bar charts under `analysis_results/<experiment_name>/`
+This module quantifies **how different** the evaluation tasks are from the training tasks. Instead of relying solely on scalar average rewards, we analyze the full probability distribution of returns to understand the policy's stability and failure modes.
+
+- **Tool:** `src/analyze_tasks.py`
+- **Methodology:**
+  - Evaluates the trained policy on 100+ episodes for each task family.
+  - Generates **High-Precision Normalized Reward Histograms** (Probability Mass Functions).
+  - **Visual Update:** Unlike standard KDE plots, these histograms explicitly show the **"All-or-Nothing"** (bimodal) nature of the tasks with a strict Probability Y-axis ($\in [0, 1]$), avoiding density estimation artifacts.
+- **Key Metrics:**
+  - **Success Probability:** Explicit fraction of episodes where the agent reaches the goal.
+  - **Wasserstein Distance:** Measures the physical "cost" to transform the reward distribution of Task A to Task B.
+  - **KL Divergence:** Quantifies the information loss when the policy transfers from one environment to another.
+- **Outputs:** Saved in `analysis_results/<experiment_name>/` as distribution plots and CSV reports.
 
 ---
 
 ## 4. Example Results (PPO Baseline)
-| Train Env | Test Env | Avg Reward |
-| --------- | -------- | ---------- |
-| Easy      | Easy     | ~0.95      |
-| Medium    | Medium   | ~0.93      |
-| Medium    | Hard     | ~0.45      |
-| Medium    | Hardest  | ~0.00      |
 
-**Interpretation**
-- PPO solves Easy and Medium reliably
-- Performance degrades sharply on Hard and Hardest
-- Reward distributions diverge strongly; KL/JS/Wasserstein distances increase significantly
-- Confirms task distribution shift and motivates Meta-RL
+The table and descriptions below illustrate the performance of a PPO baseline trained on "Medium" difficulty.
 
+| Train Env | Test Env | Avg Reward | Stability Profile | Status |
+| --------- | -------- | ---------- | ----------------- | ------ |
+| Easy      | Easy     | ~0.95      | **Deterministic** (Single sharp peak at 1.0) | Solved |
+| Medium    | Medium   | ~0.93      | **High** (Sharp peak) | Solved |
+| Medium    | Hard     | ~0.45      | **Bimodal** (Split between 0.0 and 1.0) | Struggling |
+| Medium    | Hardest  | ~0.00      | **Failure** (Peak at 0.0) | Failed |
+
+**Visual Interpretation (Reward Distributions)**
+The generated probability histograms reveal two distinct behaviors:
+1.  **Deterministic Success (Easy/Medium):** The distribution is a narrow, high peak near Reward $\approx 1.0$. This indicates the agent is confident and consistent.
+2.  **Stochastic Failure (Hard):** The distribution becomes **bimodal**. The agent either solves the task perfectly (Reward $\approx 0.9$) or fails completely (Reward $0.0$). This "gap" proves the policy has not learned a robust navigation strategy for unseen topologies.
 ---
 
 ## 5. Project Structure
