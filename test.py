@@ -39,22 +39,17 @@ def find_latest_checkpoint(ckpt_root, env_name_filter=None):
     if not os.path.exists(ckpt_root):
         raise FileNotFoundError(f"Checkpoint root not found: {ckpt_root}")
 
-    # Recursive olarak tüm alt klasörlerdeki 'ppo_model.pth' dosyalarını bul
-    # Örn: checkpoints/**/ppo_model.pth
     search_pattern = os.path.join(ckpt_root, "**", "ppo_model.pth")
     all_models = glob.glob(search_pattern, recursive=True)
 
     if not all_models:
         raise FileNotFoundError(f"No 'ppo_model.pth' found in {ckpt_root} or its subdirectories.")
 
-    # Eğer environment ismine göre filtreleme yapmak istersen (Opsiyonel)
     if env_name_filter:
-        # Dosya yolunda env_name geçiyor mu diye bakar
         all_models = [m for m in all_models if env_name_filter in m]
         if not all_models:
             raise FileNotFoundError(f"No models found matching filter: {env_name_filter}")
 
-    # Dosyaları değiştirilme zamanına (modification time) göre sırala
     latest_model = max(all_models, key=os.path.getmtime)
     
     return latest_model
@@ -89,7 +84,6 @@ def build_env_human(sc_gen, difficulty):
 # TEST LOOP
 def test_agent(model_path, sc_gen, difficulty, device, episodes=10, render=True, seed=None):
     print(f"[Test] Loading env: {difficulty}")
-    # Seed parametresini buradan kaldırdık çünkü reset'te kullanıyoruz
     env = build_env_human(sc_gen, difficulty)
     
     base_seed = seed if seed is not None else 0
@@ -115,7 +109,6 @@ def test_agent(model_path, sc_gen, difficulty, device, episodes=10, render=True,
         policy = MLPActorCritic(obs_dim, act_dim).to(device)
         print(f"[Test] Using MLPActorCritic, obs_dim={obs_dim}")
 
-    # Map location ekledik, CPU/GPU uyumsuzluğunu önler
     policy.load_state_dict(torch.load(model_path, map_location=device))
     policy.eval()
     print(f"[Test] Loaded weights: {model_path}")
@@ -123,7 +116,6 @@ def test_agent(model_path, sc_gen, difficulty, device, episodes=10, render=True,
     rewards = []
 
     for ep in range(1, episodes + 1):
-        # BURASI DOĞRU: Her episode farklı seed
         obs, _ = env.reset(seed=base_seed + ep)
         obs = np.array(obs, dtype=np.float32)
         done = False
@@ -146,7 +138,6 @@ def test_agent(model_path, sc_gen, difficulty, device, episodes=10, render=True,
             done = terminated or truncated
 
             if render:
-                # Daha akıcı görünmesi için hızı biraz kıstım (0.05 vs 0.08)
                 time.sleep(0.05)
 
         rewards.append(ep_reward)
@@ -164,9 +155,7 @@ if __name__ == "__main__":
     device = get_device("auto")
 
     sc_gen = ScenarioCreator(args.config)
-    
-    # env_id filtrelemesi opsiyonel, path karışıklığını önlemek için 
-    # bazen sadece ckpt_dir vermek daha güvenlidir.
+
     env_id_filter = sc_gen.config["difficulties"][args.difficulty]["env_id"]
 
     if args.model_path is None:
