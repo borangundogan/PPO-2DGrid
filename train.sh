@@ -1,7 +1,7 @@
 #!/bin/bash
 
-SEEDS=(125 7777 62)
-DIFFICULTY="easy"
+SEEDS=(7 9)
+DIFFICULTY="medium"
 TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
 
 echo "=================================================="
@@ -17,8 +17,8 @@ for S in "${SEEDS[@]}"; do
     uv run python train.py \
         --difficulty "$DIFFICULTY" \
         --seed "$S" \
-        --total_steps 100000 \
-        --eval_episodes 2 \
+        --total_steps 1000000 \
+        --eval_episodes 3 \
         --group_timestamp "$TIMESTAMP"
 
     echo "Finished seed $S"
