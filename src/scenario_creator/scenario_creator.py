@@ -67,14 +67,14 @@ class ScenarioCreator:
             )
         print(f"[ScenarioCreator] All environments validated as fixed-size: {sizes}")
 
-    # Main environment creation
+    # Main environment creation - **kwargs
     def create_env(self, difficulty: str = "easy", seed = None):
         cfg = self.config["difficulties"].get(difficulty)
         if cfg is None:
             raise ValueError(f"Unknown difficulty: {difficulty}")
 
-        env_id = cfg["env_id"]
-        env_kwargs = {**self.global_cfg, **cfg.get("params", {})}
+        env_id = cfg["env_id"] 
+        env_kwargs = {**self.global_cfg, **cfg.get("params", {})} # **kwargs
 
         env = gym.make(env_id, **env_kwargs)
 
