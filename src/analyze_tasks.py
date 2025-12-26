@@ -34,13 +34,13 @@ def collect_rewards(env, policy, device, num_episodes=50, seed=0):
             obs_t = torch.tensor(obs, dtype=torch.float32, device=device)
 
             if obs.ndim == 3:
-                obs_t = obs_t.unsqueeze(0) / 255.0
+                obs_t = obs_t.unsqueeze(0) / 255.0            
             else:
                 obs_t = obs_t.view(1, -1) / 255.0
 
             with torch.no_grad():
-                logits = policy.actor(obs_t)
-                action = torch.argmax(logits).item()
+                action_tensor, _, _ = policy.act(obs_t)
+                action = action_tensor.item()
 
             obs, reward, terminated, truncated, _ = env.step(action)
             obs = np.array(obs, dtype=np.float32)
@@ -99,7 +99,6 @@ def plot_reward_distribution(r1, r2, name1, name2, save_path):
     plt.savefig(save_path, dpi=300)
     plt.close()
 
-
 # Bar chart of mean episode rewards
 def plot_reward_bars(reward_dict, save_path):
     tasks = list(reward_dict.keys())
@@ -114,7 +113,6 @@ def plot_reward_bars(reward_dict, save_path):
     plt.tight_layout()
     plt.savefig(save_path, dpi=300)
     plt.close()
-
 
 # main
 def main():
@@ -197,7 +195,6 @@ def main():
             print()
 
     print(f"\nSaved all outputs to: {out_dir}/")
-
 
 if __name__ == "__main__":
     main()
