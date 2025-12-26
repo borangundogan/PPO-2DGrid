@@ -18,7 +18,7 @@ class HardEnv(BaseCustomEnv):
     """
 # smaller walls for easier scenario agents
     def _gen_grid(self, width, height):
-        self.random_goal = False
+        self.random_goal = True
         self.grid = Grid(width, height)
 
         # outer walls
