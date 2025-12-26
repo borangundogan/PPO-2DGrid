@@ -216,6 +216,9 @@ def train_minigrid(args):
 
     eval_env = sc_gen.create_env(args.difficulty, seed=args.seed + 999)
 
+    # Initialize best reward tracking
+    best_reward = -float('inf')
+
     while step_count < args.total_steps:
 
         last_value = agent.collect_rollouts()
@@ -231,6 +234,13 @@ def train_minigrid(args):
             seed=args.seed + 999
         )
         avg_r = np.mean(eval_rewards)
+
+        # Save Best Model Logic
+        if avg_r > best_reward:
+            best_reward = avg_r
+            best_model_path = os.path.join(ckpt_subdir, "best_model.pth")
+            torch.save(agent.ac.state_dict(), best_model_path)
+            print(f"[*] New best model saved! Reward: {best_reward:.3f} -> {best_model_path}")
 
         elapsed_min = (time.time() - start_time) / 60
 
