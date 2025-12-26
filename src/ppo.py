@@ -109,6 +109,14 @@ class PPO:
                 ep_return = 0
                 ep_length = 0
 
+        # This ensures images pass through the CNN extractor first.
+        last_state_t = self._obs_to_tensor(state)
+        with torch.no_grad():
+            _, _, last_val_tensor = self.ac.act(last_state_t)
+            last_value = last_val_tensor.item()
+        
+        return last_value
+
     def compute_gae(self, rewards, values, dones, last_value):
         T = len(rewards)
         adv = np.zeros(T, dtype=np.float32)
@@ -116,15 +124,16 @@ class PPO:
 
         for t in reversed(range(T)):
             mask = 1.0 - dones[t]
-            delta = rewards[t] + self.gamma * last_value * mask - values[t]
+            next_val = last_value if t == T - 1 else values[t + 1]
+            
+            delta = rewards[t] + self.gamma * next_val * mask - values[t]
             gae = delta + self.gamma * self.lam * mask * gae
             adv[t] = gae
-            last_value = values[t]
-
+            
         returns = values + adv
         return adv, returns
 
-    def update(self):
+    def update(self, last_value):
         (
             states,
             actions,
@@ -133,9 +142,6 @@ class PPO:
             values_old,
             dones,
         ) = self.buffer.to_tensors(self.device)
-
-        with torch.no_grad():
-            last_value = self.ac.critic(states[-1].unsqueeze(0)).item()
 
         adv, returns = self.compute_gae(
             rewards.cpu().numpy(),
@@ -201,12 +207,10 @@ class PPO:
             nbatches
         )
 
-
-
     def train(self, total_steps=100_000):
         steps_done = 0
         while steps_done < total_steps:
-            self.collect_rollouts()
-            self.update()
+            last_value = self.collect_rollouts()
+            self.update(last_value)
             steps_done += self.batch_size
             print(f"Steps: {steps_done} done.")

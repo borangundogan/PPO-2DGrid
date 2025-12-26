@@ -13,9 +13,9 @@ class CNNFeatureExtractor(nn.Module):
 
         self.conv = nn.Sequential(
             nn.Conv2d(input_channels, 32, kernel_size=3, padding=1),
-            nn.GELU(),
+            nn.ReLU(),
             nn.Conv2d(32, 64, kernel_size=3, padding=1),
-            nn.GELU(),
+            nn.ReLU(),
         )
 
         # DYNAMIC FEATURE SIZE COMPUTATION
@@ -45,27 +45,25 @@ class CNNFeatureExtractor(nn.Module):
 
 # MLP Policy + Critic (Flattened input)
 class MLPActorCritic(nn.Module):
-    def __init__(self, obs_dim, act_dim, hidden_dim=64, dropout=0.1):
+    # UPDATED: Increased default hidden_dim to 256 for better capacity on Hard tasks
+    def __init__(self, obs_dim, act_dim, hidden_dim=256): 
         super().__init__()
 
         # Policy
         self.actor = nn.Sequential(
             nn.Linear(obs_dim, hidden_dim),
-            nn.ReLU(),
-            nn.Dropout(dropout),
+            nn.Tanh(), # Tanh is often preferred for PPO value stability
             nn.Linear(hidden_dim, hidden_dim),
-            nn.ReLU(),
-            nn.Dropout(dropout),
+            nn.Tanh(),
             nn.Linear(hidden_dim, act_dim),
-            nn.Softmax(dim=-1),
         )
 
         # Value
         self.critic = nn.Sequential(
             nn.Linear(obs_dim, hidden_dim),
-            nn.ReLU(),
+            nn.Tanh(),
             nn.Linear(hidden_dim, hidden_dim),
-            nn.ReLU(),
+            nn.Tanh(),
             nn.Linear(hidden_dim, 1),
         )
 
@@ -74,8 +72,9 @@ class MLPActorCritic(nn.Module):
         """
         obs: (B, obs_dim)
         """
-        probs = self.actor(obs)
-        dist = torch.distributions.Categorical(probs)
+        logits = self.actor(obs)
+        dist = torch.distributions.Categorical(logits=logits)
+        
         action = dist.sample()
         logp = dist.log_prob(action)
         value = self.critic(obs).squeeze(-1)
@@ -86,8 +85,9 @@ class MLPActorCritic(nn.Module):
         obs: (B, obs_dim)
         actions: (B,)
         """
-        probs = self.actor(obs)
-        dist = torch.distributions.Categorical(probs)
+        logits = self.actor(obs)
+        dist = torch.distributions.Categorical(logits=logits)
+        
         logp = dist.log_prob(actions)
         entropy = dist.entropy()
         value = self.critic(obs).squeeze(-1)
@@ -108,15 +108,14 @@ class CNNActorCritic(nn.Module):
         # Policy network
         self.actor = nn.Sequential(
             nn.Linear(feat_dim, hidden_dim),
-            nn.GELU(),
+            nn.ReLU(),
             nn.Linear(hidden_dim, act_dim),
-            nn.Softmax(dim=-1),
         )
 
         # Value function
         self.critic = nn.Sequential(
             nn.Linear(feat_dim, hidden_dim),
-            nn.GELU(),
+            nn.ReLU(),
             nn.Linear(hidden_dim, 1),
         )
 
@@ -128,9 +127,9 @@ class CNNActorCritic(nn.Module):
     # PPO API
     def act(self, obs):
         features = self._extract(obs)
-        probs = self.actor(features)
+        logits = self.actor(features)
 
-        dist = torch.distributions.Categorical(probs)
+        dist = torch.distributions.Categorical(logits=logits)
         action = dist.sample()
         logp = dist.log_prob(action)
 
@@ -139,9 +138,9 @@ class CNNActorCritic(nn.Module):
 
     def evaluate(self, obs, actions):
         features = self._extract(obs)
-        probs = self.actor(features)
+        logits = self.actor(features)
 
-        dist = torch.distributions.Categorical(probs)
+        dist = torch.distributions.Categorical(logits=logits)
         logp = dist.log_prob(actions)
         entropy = dist.entropy()
 

@@ -1,11 +1,13 @@
 #!/bin/bash
 
-SEEDS=(7 9)
+SEEDS=(42)
+
 DIFFICULTY="medium"
+
 TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
 
 echo "=================================================="
-echo "Starting Experiment Batch"
+echo "Starting QUICK TEST Batch"
 echo "Difficulty: $DIFFICULTY"
 echo "Group Timestamp ID: $TIMESTAMP"
 echo "=================================================="
@@ -17,13 +19,13 @@ for S in "${SEEDS[@]}"; do
     uv run python train.py \
         --difficulty "$DIFFICULTY" \
         --seed "$S" \
-        --total_steps 1000000 \
-        --eval_episodes 3 \
+        --total_steps 300000 \
+        --eval_episodes 5 \
         --group_timestamp "$TIMESTAMP"
 
     echo "Finished seed $S"
 done
 
 echo "----------------------------------"
-echo "All trainings completed."
+echo "Test run completed."
 echo "Results are stored in checkpoints/ folder under group: $TIMESTAMP"

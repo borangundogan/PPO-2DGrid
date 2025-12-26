@@ -25,10 +25,11 @@ class ScenarioCreator:
         with open(config_path, "r") as f:
             self.config = yaml.safe_load(f)
 
-        # # --- Global seed for reproducibility ---
-        # self.seed = self.config.get("seed", 42)
-        # random.seed(self.seed)
-        # np.random.seed(self.seed)
+        # --- Global seed for reproducibility ---
+        # UPDATED: Uncommented to fix crash in create_env
+        self.seed = self.config.get("seed", 42)
+        random.seed(self.seed)
+        np.random.seed(self.seed)
 
         # Extract optional sections
         self.global_cfg = self.config.get("global", {})
@@ -104,6 +105,7 @@ class ScenarioCreator:
         env = ThreeActionWrapper(env)
 
         if seed is None:
+            # UPDATED: This now works because self.seed is defined in __init__
             seed = self.seed
         env.reset(seed=seed)
 
@@ -114,6 +116,7 @@ class ScenarioCreator:
         """Generate multiple randomized environments for evaluation."""
         scenarios = []
         for i in range(n):
+            # UPDATED: Ensures deterministic variation based on the master seed
             env = self.create_env(difficulty, seed=self.seed + i)
             # env.reset(seed=self.seed + i)
             scenarios.append(env)

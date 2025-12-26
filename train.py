@@ -9,8 +9,6 @@ import gymnasium as gym
 import minigrid
 
 from src.utils import set_seed
-from gymnasium.wrappers import FlattenObservation
-from minigrid.wrappers import FullyObsWrapper, RGBImgPartialObsWrapper, ImgObsWrapper
 import matplotlib.pyplot as plt
 from torch.utils.tensorboard import SummaryWriter
 
@@ -80,7 +78,7 @@ def evaluate_policy(agent, env, episodes=3, seed=None):
                     obs_t = torch.tensor(obs, dtype=torch.float32,
                                          device=agent.device).view(1, -1)
 
-                obs_t = obs_t / 255.0
+                obs_t = obs_t / 255.0  # Normalizasyon
                 action, _, _ = agent.ac.act(obs_t)
 
             obs, reward, terminated, truncated, _ = env.step(action.item())
@@ -93,30 +91,35 @@ def evaluate_policy(agent, env, episodes=3, seed=None):
     return rewards
 
 
-# Visualize agent (MLP/CNN safe version)
 def visualize_agent(agent, difficulty="easy", episodes=1):
     print(f"[Visualize] Difficulty = {difficulty}")
 
     sc_gen = ScenarioCreator("src/config/scenario.yaml")
-
-    cfg = sc_gen.config["difficulties"][difficulty].copy()
-    params = cfg.get("params", {}).copy()
-    params["render_mode"] = "human"
-
+    
+    cfg = sc_gen.config["difficulties"][difficulty]
     env_id = cfg["env_id"]
-    env = gym.make(env_id, **params)
-
+    
+    env_kwargs = {**sc_gen.global_cfg, **cfg.get("params", {})}
+    env_kwargs["render_mode"] = "human"
+    
+    env = gym.make(env_id, **env_kwargs)
+    
     obs_cfg = sc_gen.get_observation_params()
-
+    
     if obs_cfg.get("fully_observable", False):
+        from minigrid.wrappers import FullyObsWrapper
         env = FullyObsWrapper(env)
     else:
+        from minigrid.wrappers import RGBImgPartialObsWrapper
         env = RGBImgPartialObsWrapper(env)
-
+        
+    from minigrid.wrappers import ImgObsWrapper
     env = ImgObsWrapper(env)
+    
     if obs_cfg.get("flatten", False):
+        from gymnasium.wrappers import FlattenObservation
         env = FlattenObservation(env)
-
+        
     from src.wrappers.three_action_wrapper import ThreeActionWrapper
     env = ThreeActionWrapper(env)
 
@@ -215,9 +218,10 @@ def train_minigrid(args):
 
     while step_count < args.total_steps:
 
-        agent.collect_rollouts()
+        last_value = agent.collect_rollouts()
 
-        update_stats = agent.update()
+        update_stats = agent.update(last_value)
+        
         step_count += agent.batch_size
 
         eval_rewards = evaluate_policy(
@@ -285,6 +289,9 @@ def train_minigrid(args):
             torch.save(agent.ac.state_dict(), ckpt_path)
             print(f"Model checkpoint saved at step {step_count} -> {ckpt_path}")
 
+    # Visual eval if requested
+    if args.visual_eval:
+        visualize_agent(agent, difficulty=args.difficulty)
 
 if __name__ == "__main__":
     args = parse_args()
