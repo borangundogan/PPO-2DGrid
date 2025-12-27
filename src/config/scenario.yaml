@@ -1,6 +1,6 @@
 observation:
   fully_observable: false
-  flatten: true
+  flatten: false
 
 difficulties:
   easy:
@@ -10,6 +10,11 @@ difficulties:
 
   medium:
     env_id: MERLIN-Medium-16x16-v0
+    params:
+      render_mode: rgb_array
+
+  mediumhard:
+    env_id: MERLIN-MediumHard-16x16-v0
     params:
       render_mode: rgb_array
 
