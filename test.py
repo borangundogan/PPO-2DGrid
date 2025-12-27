@@ -17,7 +17,7 @@ def parse_args():
     parser = argparse.ArgumentParser(description="Test PPO model with ScenarioCreator")
 
     parser.add_argument("--difficulty", type=str, default="easy",
-                        choices=["easy", "medium", "hard", "hardest"])
+                        choices=["easy", "medium", "mediumhard" ,"hard", "hardest"])
 
     parser.add_argument("--episodes", type=int, default=10)
     parser.add_argument("--model_path", type=str, default=None,
