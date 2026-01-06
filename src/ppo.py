@@ -87,7 +87,7 @@ class PPO:
             state_t = self._obs_to_tensor(state)
 
             with torch.no_grad():
-                action, logp, value = self.ac.act(state_t)
+                action, logp, value = self.ac.act(state_t, deterministic=False)
 
             next_state, reward, terminated, truncated, _ = self.env.step(action.item())
             done = terminated or truncated

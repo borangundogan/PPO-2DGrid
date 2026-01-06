@@ -79,7 +79,7 @@ def evaluate_policy(agent, env, episodes=3, seed=None):
                                          device=agent.device).view(1, -1)
 
                 obs_t = obs_t / 255.0  # Normalizasyon
-                action, _, _ = agent.ac.act(obs_t)
+                action, _, _ = agent.ac.act(obs_t, deterministic=True)
 
             obs, reward, terminated, truncated, _ = env.step(action.item())
             obs = np.array(obs, dtype=np.float32)
@@ -142,7 +142,7 @@ def visualize_agent(agent, difficulty="easy", episodes=1):
                                          device=device).view(1, -1)
 
                 obs_t = obs_t / 255.0
-                action, _, _ = actor.act(obs_t)
+                action, _, _ = actor.act(obs_t, deterministic=True)
 
             obs, reward, terminated, truncated, _ = env.step(action.item())
             obs = np.array(obs, dtype=np.float32)

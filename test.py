@@ -120,8 +120,12 @@ def test_agent(model_path, sc_gen, difficulty, device, episodes=10, render=True,
         obs = np.array(obs, dtype=np.float32)
         done = False
         ep_reward = 0
+        step_count = 0
+        max_steps = 100
 
         while not done:
+            step_count += 1
+
             if use_cnn:
                 obs_t = torch.tensor(obs, dtype=torch.float32, device=device).unsqueeze(0)
             else:
@@ -130,10 +134,14 @@ def test_agent(model_path, sc_gen, difficulty, device, episodes=10, render=True,
             obs_t /= 255.0
 
             with torch.no_grad():
-                action, _, _ = policy.act(obs_t)
+                action, _, _ = policy.act(obs_t, deterministic=False)
 
             obs, reward, terminated, truncated, _ = env.step(action.item())
-            obs = np.array(obs, dtype=np.float32)
+            if step_count >= max_steps:
+                truncated = True
+            
+            # obs = np.array(obs, dtype=np.float32)
+            
             ep_reward += reward
             done = terminated or truncated
 

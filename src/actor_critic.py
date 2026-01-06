@@ -19,7 +19,6 @@ class CNNFeatureExtractor(nn.Module):
         )
 
         # DYNAMIC FEATURE SIZE COMPUTATION
-        # Create dummy input: (1, C, H, W)
         dummy = torch.zeros(
             1,
             obs_shape[2],  # C
@@ -30,13 +29,11 @@ class CNNFeatureExtractor(nn.Module):
         with torch.no_grad():
             out = self.conv(dummy)
 
-        # Compute flattened size
         self.output_dim = out.numel()
 
     def forward(self, x):
         """
-        x: (B, H, W, C)
-        convert → (B, C, H, W)
+        x: (B, H, W, C) -> (B, C, H, W)
         """
         x = x.permute(0, 3, 1, 2)
         x = self.conv(x)
@@ -45,14 +42,13 @@ class CNNFeatureExtractor(nn.Module):
 
 # MLP Policy + Critic (Flattened input)
 class MLPActorCritic(nn.Module):
-    # UPDATED: Increased default hidden_dim to 256 for better capacity on Hard tasks
     def __init__(self, obs_dim, act_dim, hidden_dim=256): 
         super().__init__()
 
         # Policy
         self.actor = nn.Sequential(
             nn.Linear(obs_dim, hidden_dim),
-            nn.Tanh(), # Tanh is often preferred for PPO value stability
+            nn.Tanh(),
             nn.Linear(hidden_dim, hidden_dim),
             nn.Tanh(),
             nn.Linear(hidden_dim, act_dim),
@@ -67,17 +63,24 @@ class MLPActorCritic(nn.Module):
             nn.Linear(hidden_dim, 1),
         )
 
-    # PPO-compatible API
-    def act(self, obs):
+    def act(self, obs, deterministic=False):
         """
         obs: (B, obs_dim)
+        deterministic: If True, pick the argmax action (Greedy).
+                       If False, sample from distribution (Stochastic).
         """
         logits = self.actor(obs)
         dist = torch.distributions.Categorical(logits=logits)
         
-        action = dist.sample()
+        if deterministic:
+            action = torch.argmax(logits, dim=1) # Take the best action
+        else:
+            action = dist.sample()               # Roll the dice
+            
         logp = dist.log_prob(action)
         value = self.critic(obs).squeeze(-1)
+        
+        # Note: In deterministic mode, entropy is technically 0, but we return the sampled entropy or None. Usually ignored during eval.
         return action, logp, value
 
     def evaluate(self, obs, actions):
@@ -97,43 +100,40 @@ class MLPActorCritic(nn.Module):
 # CNN Policy + Critic (Image input)
 class CNNActorCritic(nn.Module):
     def __init__(self, obs_shape, act_dim, hidden_dim=256):
-        """
-        obs_shape: (H, W, C)
-        """
         super().__init__()
 
         self.feature_extractor = CNNFeatureExtractor(obs_shape)
         feat_dim = self.feature_extractor.output_dim
 
-        # Policy network
         self.actor = nn.Sequential(
             nn.Linear(feat_dim, hidden_dim),
             nn.ReLU(),
             nn.Linear(hidden_dim, act_dim),
         )
 
-        # Value function
         self.critic = nn.Sequential(
             nn.Linear(feat_dim, hidden_dim),
             nn.ReLU(),
             nn.Linear(hidden_dim, 1),
         )
 
-    # helpers
     def _extract(self, obs):
-        # obs: (B, H, W, C)
         return self.feature_extractor(obs)
 
-    # PPO API
-    def act(self, obs):
+    def act(self, obs, deterministic=False):
         features = self._extract(obs)
         logits = self.actor(features)
 
         dist = torch.distributions.Categorical(logits=logits)
-        action = dist.sample()
+        
+        if deterministic:
+            action = torch.argmax(logits, dim=1) # Take the best action
+        else:
+            action = dist.sample()               # Roll the dice
+            
         logp = dist.log_prob(action)
-
         value = self.critic(features).squeeze(-1)
+        
         return action, logp, value
 
     def evaluate(self, obs, actions):

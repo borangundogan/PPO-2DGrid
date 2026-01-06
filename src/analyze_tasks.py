@@ -39,7 +39,7 @@ def collect_rewards(env, policy, device, num_episodes=50, seed=0):
                 obs_t = obs_t.view(1, -1) / 255.0
 
             with torch.no_grad():
-                action_tensor, _, _ = policy.act(obs_t)
+                action_tensor, _, _ = policy.act(obs_t, deterministic=True)
                 action = action_tensor.item()
 
             obs, reward, terminated, truncated, _ = env.step(action)
