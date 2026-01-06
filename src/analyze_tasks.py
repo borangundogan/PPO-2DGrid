@@ -79,7 +79,8 @@ def plot_reward_distribution(r1, r2, name1, name2, save_path):
         hue="Task",
         stat="probability",  
         kde=False,            
-        bins=50,             
+        bins=20,        
+        binrange=(0, 1),     
         multiple="layer",    
         element="step",      
         palette=["#1f77b4", "#ff7f0e"], 
@@ -92,7 +93,7 @@ def plot_reward_distribution(r1, r2, name1, name2, save_path):
     plt.xlabel("Episode Return", fontsize=12)
     plt.title(f"Reward Distribution: {name1} vs {name2}", fontsize=14)
     
-    plt.xlim(-0.02, 1.05)
+    plt.ylim(-0.02, 1.05)
     plt.grid(True, linestyle=':', alpha=0.6) 
     
     plt.tight_layout()
