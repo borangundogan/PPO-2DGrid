@@ -7,7 +7,7 @@ import torch
 import gymnasium as gym
 
 from src.actor_critic import MLPActorCritic, CNNActorCritic
-from src.utils import get_device
+from src.utils.utils import get_device
 from src.scenario_creator.scenario_creator import ScenarioCreator
 from minigrid.wrappers import FullyObsWrapper, RGBImgPartialObsWrapper, ImgObsWrapper
 from gymnasium.wrappers import FlattenObservation

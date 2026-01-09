@@ -8,12 +8,12 @@ import torch
 import gymnasium as gym
 import minigrid
 
-from src.utils import set_seed
+from src.utils.utils import set_seed
 import matplotlib.pyplot as plt
 from torch.utils.tensorboard import SummaryWriter
 
 from src.ppo import PPO
-from src.utils import get_device
+from src.utils.utils import get_device
 from src.scenario_creator.scenario_creator import ScenarioCreator
 
 from src.metrics.ppo_metrics import compute_episode_stats

@@ -15,7 +15,7 @@ import matplotlib.ticker as ticker
 
 from src.scenario_creator.scenario_creator import ScenarioCreator
 from src.metrics.task_metrics import compare_two_feature_sets
-from src.utils import get_device, set_seed
+from src.utils.utils import get_device, set_seed
 from src.actor_critic import MLPActorCritic, CNNActorCritic
 
 
