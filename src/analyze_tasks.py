@@ -79,7 +79,7 @@ def plot_reward_distribution(r1, r2, name1, name2, save_path):
         hue="Task",
         stat="probability",  
         kde=False,            
-        bins=30,        
+        bins=50,        
         binrange=(0, 1),     
         multiple="layer",    
         element="step",      
