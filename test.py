@@ -128,13 +128,12 @@ def test_agent(model_path, sc_gen, difficulty, device, episodes=10, render=True,
 
             if use_cnn:
                 obs_t = torch.tensor(obs, dtype=torch.float32, device=device).unsqueeze(0)
+                obs_t /= 255.0
             else:
                 obs_t = torch.tensor(obs, dtype=torch.float32, device=device).view(1, -1)
 
-            obs_t /= 255.0
-
             with torch.no_grad():
-                action, _, _ = policy.act(obs_t, deterministic=False)
+                action, _, _ = policy.act(obs_t, deterministic=True)
 
             obs, reward, terminated, truncated, _ = env.step(action.item())
             if step_count >= max_steps:
