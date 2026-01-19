@@ -2,6 +2,12 @@
 import numpy as np
 import torch
 
+# --- Utility: Orthogonal Initialization for PPO ---
+def layer_init(layer, std=np.sqrt(2), bias_const=0.0):
+    torch.nn.init.orthogonal_(layer.weight, std)
+    torch.nn.init.constant_(layer.bias, bias_const)
+    return layer
+
 def compute_gae_standard(rewards, values, dones, last_value, gamma=0.99, lam=0.95):
     """
     Stateless GAE calculator. Works for both PPO and FOMAML.

@@ -45,9 +45,10 @@ class FOMAML:
     def _obs_to_tensor(self, state):
         if self.use_cnn:
             state_t = torch.tensor(state, dtype=torch.float32, device=self.device).unsqueeze(0)
+            state_t = state_t / 255.0
         else:
             state_t = torch.tensor(state, dtype=torch.float32, device=self.device).view(1, -1)
-        return state_t / 255.0
+        return state_t 
 
     def collect_trajectory(self, env, policy, steps=20):
         obs_buf, act_buf, rew_buf, val_buf, logp_buf, done_buf = [], [], [], [], [], []
@@ -106,7 +107,8 @@ class FOMAML:
             adv[t] = gae
             
         adv_t = torch.tensor(adv, dtype=torch.float32, device=self.device)
-        ret_t = batch["val"] + adv_t
+        adv_t = (adv_t - adv_t.mean()) / (adv_t.std() + 1e-8)
+        ret_t = (batch["val"] + adv_t).detach()
         
         new_logp, entropy, new_vals = policy.evaluate(batch["obs"], batch["act"])
         
@@ -121,7 +123,7 @@ class FOMAML:
         total_loss = pi_loss + self.vf_coef * v_loss - self.ent_coef * entropy.mean()
         return total_loss
 
-    def meta_train_step(self, task_seeds, k_support=20, k_query=20):
+    def meta_train_step(self, task_seeds, k_support=50, k_query=50):
         """
         Executes one Meta-Training Step (Outer Loop).
         Returns: (Average Loss, Average Reward)
@@ -144,6 +146,7 @@ class FOMAML:
             
             inner_optim.zero_grad()
             support_loss.backward()
+            torch.nn.utils.clip_grad_norm_(fast_policy.parameters(), max_norm=0.5)
             inner_optim.step()
             
             # --- STEP 2: Query Set (Outer Evaluation) ---
@@ -174,7 +177,8 @@ class FOMAML:
         for param in self.meta_policy.parameters():
             if param.grad is not None:
                 param.grad.data.div_(len(task_seeds))
-                
+
+        torch.nn.utils.clip_grad_norm_(self.meta_policy.parameters(), max_norm=0.5) 
         self.meta_optimizer.step()
         
         return meta_loss_accum / len(task_seeds), meta_reward_accum / len(task_seeds)

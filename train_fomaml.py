@@ -17,7 +17,7 @@ def parse_args():
                         help="Total meta-training iterations")
     parser.add_argument("--tasks_per_batch", type=int, default=8,
                         help="Number of tasks (maps) to sample per meta-update")
-    parser.add_argument("--k_steps", type=int, default=50,
+    parser.add_argument("--k_steps", type=int, default=80,
                         help="Trajectory length")
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--device", type=str, default="auto")
@@ -69,13 +69,13 @@ def train_fomaml():
     
     for itr in range(1, args.iterations + 1):
         # 1. Sample Task Seeds (Unique tasks for this batch)
-        task_seeds = [np.random.randint(0, 100000) for _ in range(args.tasks_per_batch)]
+        task_seeds = np.random.choice(range(100000), size=args.tasks_per_batch, replace=False)        
         
         # --- Visualization Loop ---
         if args.render_live and itr % 1 == 0: 
             for i, seed in enumerate(task_seeds):
                 temp_env = sc.create_env(args.difficulty, seed=seed)
-                temp_env.reset(seed=seed)
+                temp_env.reset(seed=int(seed))
                 
                 # Get pure frame from unwrapped env
                 img = temp_env.unwrapped.get_frame() 
@@ -104,8 +104,6 @@ def train_fomaml():
             best_meta_reward = avg_reward
             save_path = os.path.join(ckpt_dir, "best_model.pth")
             torch.save(fomaml.meta_policy.state_dict(), save_path)
-            # Optional: Print new record
-            # print(f"[*] New Record: {avg_reward:.4f}")
         
         # 4. Logging
         if itr % 10 == 0:

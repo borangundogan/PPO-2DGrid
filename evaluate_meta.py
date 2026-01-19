@@ -30,7 +30,7 @@ def evaluate_episode(env, policy, device, max_steps=100):
         if obs_np.ndim == 3: # H,W,C
             obs_t = torch.tensor(obs_np, dtype=torch.float32, device=device).unsqueeze(0) / 255.0
         else: # Flattened
-            obs_t = torch.tensor(obs_np, dtype=torch.float32, device=device).view(1, -1) / 255.0
+            obs_t = torch.tensor(obs_np, dtype=torch.float32, device=device).view(1, -1) 
             
         with torch.no_grad():
             # Deterministic = True for robust evaluation
