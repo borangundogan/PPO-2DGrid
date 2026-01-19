@@ -141,3 +141,22 @@ class CNNActorCritic(nn.Module):
         
         if deterministic:
             action = torch.argmax(logits, dim=1) # Take the best action
+
+        else:
+            action = dist.sample()
+
+        logp = dist.log_prob(action)
+        value = self.critic(features).squeeze(-1)
+        
+        return action, logp, value
+    
+    def evaluate(self, obs, actions):
+        features = self._extract(obs)
+        logits = self.actor(features)
+
+        dist = torch.distributions.Categorical(logits=logits)
+        logp = dist.log_prob(actions)
+        entropy = dist.entropy()
+
+        value = self.critic(features).squeeze(-1)
+        return logp, entropy, value
