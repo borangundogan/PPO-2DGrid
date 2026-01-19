@@ -69,7 +69,7 @@ def train_fomaml():
     
     for itr in range(1, args.iterations + 1):
         # 1. Sample Task Seeds (Unique tasks for this batch)
-        task_seeds = np.random.choice(range(100000), size=args.tasks_per_batch, replace=False)        
+        task_seeds = [int(s) for s in np.random.choice(range(100000), size=args.tasks_per_batch, replace=False)]
         
         # --- Visualization Loop ---
         if args.render_live and itr % 1 == 0: 
