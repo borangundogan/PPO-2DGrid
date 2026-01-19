@@ -1,46 +1,48 @@
-# MERLIN: Modular PPO Baseline for MiniGrid and Meta-RL Research
+# MERLIN: Modular PPO & Meta-RL Framework for MiniGrid
 
-**MERLIN** (Meta-RL Environment & Robust Learning Infrastructure) is a research-grade reinforcement learning framework designed to quantify **task distribution shift**, **policy robustness**, and **generalization gaps** in grid-world navigation tasks.
+**MERLIN** (Meta-RL Environment & Robust Learning Infrastructure) is a research-grade reinforcement learning framework designed to bridge the gap between **Standard RL (PPO)** and **Meta-RL (FOMAML)**.
 
-Built on a robust **PPO (Proximal Policy Optimization)** baseline with automatic **CNN/MLP architecture switching**, MERLIN serves as the foundational benchmark for developing advanced Meta-RL algorithms (e.g., MAML, FOMAML). It provides a rigorous pipeline for measuring how well a standard RL agent can adapt to unseen topological structures using advanced statistical metrics like **Wasserstein Distance** and **Jensen-Shannon Divergence**.
+Built on a shared **Actor-Critic Backbone**, MERLIN quantifies two distinct types of intelligence:
+1.  **Generalization (PPO):** How well a fixed policy performs on unseen tasks (Zero-Shot).
+2.  **Adaptation (Meta-RL):** How quickly a policy can "learn to learn" when exposed to a new environment for just a few steps (Few-Shot).
+
+The framework provides a rigorous pipeline for measuring **Task Distribution Shift** using advanced statistical metrics (Wasserstein Distance) and **Adaptation Deltas** (Pre-Update vs. Post-Update rewards).
 
 ---
 
-## Current Research Status (Baseline Analysis)
+## Current Research Status
 
 | Component | Status | Description |
 | :--- | :--- | :--- |
-| **PPO Backbone** | Stable | Robust convergence on 'Medium' tasks (Reward > 0.97). |
-| **Architecture** | Solved | Auto-detection for **CNN** (Image) vs. **MLP** (State) based on config. |
-| **Checkpointing** | Solved | Implemented "Save Best Model" to prevent performance collapse. |
-| **Generalization** | **Gap Identified** | Strong downward transfer (Medium $\to$ Easy), but **catastrophic failure** on upward transfer (Medium $\to$ Hard). |
-| **Metric Pipeline** | Active | Wasserstein & KDE analysis fully implemented. |
+| **PPO Baseline** | **Stable** | Converges on 'Medium' tasks. Fails on 'Hard' (Wall-Banging). |
+| **Meta-RL (FOMAML)** | **Active** | **Verified Adaptation.** Agent learns to navigate obstacles it previously failed on after just 50 steps of practice. |
+| **Architecture** | **Unified** | Auto-switches between **CNN** (Pixels) and **MLP** (Flat) for both PPO and Meta-RL. |
+| **Evaluation** | ** rigorous** | Standardized on **Deterministic (Argmax)** evaluation to eliminate stochastic noise from metrics. |
+| **Metric Pipeline** | **Active** | Measures "Adaptation Delta" (Pre vs. Post Reward) and Distribution Shift (Wasserstein). |
 
 ---
 
 ## 1. Core Features
 
-### Adaptive Actor-Critic Architecture
-- **PPO from Scratch:** Implements clipped surrogate objective, GAE (Generalized Advantage Estimation), entropy regularization, and gradient norm clipping.
-- **Input Agnostic:** Automatically initializes `CNNActorCritic` for pixel-based observations (3D tensors) or `MLPActorCritic` for flattened states.
-- **Stability:** Features normalized observation spaces, orthogonal weight initialization, and minimal action space wrappers.
+### Dual-Algorithm Support
+- **PPO (Proximal Policy Optimization):** The baseline agent. Optimized for stability with GAE, Entropy Regularization, and Orthogonal Initialization. Used to measure pure generalization limits.
+- **FOMAML (First-Order MAML):** The meta-learner. Implements a "Two-Loop" optimization process (Support Set $\to$ Inner Update $\to$ Query Set) to find a weight initialization that is highly adaptable.
 
 ### ScenarioCreator & Task Hierarchy
-All environments are defined centrally in `src/config/scenario.yaml` to ensure strict comparability (fixed grid size $16 \times 16$).
+All environments are centralized in `src/config/scenario.yaml`. The system supports **Task Sampling** (generating unique seeds per meta-batch).
 
-| Difficulty | Topology Description | Cognitive Requirement |
+| Difficulty | Topology Description | Meta-RL Challenge |
 | :--- | :--- | :--- |
 | **Easy** | Empty grid. Fixed goal. | Basic Motor Control |
-| **Medium** | Random agent/goal placement. No obstacles. | Visual Goal Recognition |
-| **MediumHard**| Scattered pillars (random obstacles). | Steering & Maneuvering |
-| **Hard** | Wall split with a single gap. | Path Planning (Deceptive Reward) |
-| **Hardest** | Four-Rooms layout with debris. | Long-horizon Navigation |
+| **Medium** | Random agent/goal placement. | Visual Search Strategy |
+| **MediumHard**| Scattered pillars (obstacles). | **Adaptation Test:** Can the agent learn to avoid a pillar it just hit? |
+| **Hard** | Wall split with a single gap. | **Path Planning:** Requires memory of the barrier structure. |
 
-### Quantitative Analysis Module (`src/analyze_tasks.py`)
-Moving beyond simple scalar rewards, MERLIN analyzes the **Probability Distribution of Returns** to diagnose failure modes:
-- **Wasserstein Distance:** Quantifies the "physical cost" to transform the reward distribution of the training task to the test task. High values indicate a Distribution Shift.
-- **Jensen-Shannon Divergence:** Measures the similarity between policy behaviors across tasks.
-- **Reward Histograms:** Visualizes whether the policy is robust (unimodal peak at 1.0) or reliant on luck (bimodal distribution at 0.0 and 1.0).
+### Quantitative Analysis Module (`src/evaluate_meta.py`)
+MERLIN moves beyond simple rewards by analyzing the **Adaptation Gap**:
+- **Pre-Update (Zero-Shot):** Performance of the initialized policy on a new map.
+- **Post-Update (Few-Shot):** Performance after $K=50$ steps of gradient descent on the specific map.
+- **Delta:** The quantitative proof of "learning to learn" (Positive Delta = Successful Adaptation).
 
 ---
 
@@ -60,27 +62,43 @@ The reward distribution histograms reveal the root cause of the failure in the *
 1.  **Medium Task:** A sharp, unimodal peak near Reward=1.0. The agent is confident and consistent.
 2.  **Hard Task:** A **Bimodal Distribution**. The agent either solves the task perfectly (Reward $\approx$ 1.0) when spawned favorably, or fails completely (Reward 0.0) when separated by a wall, proving it lacks true path planning capabilities.
 
+## 2. Experimental Results (Meta-Learning Validation)
+
+We trained FOMAML on **Medium** tasks and evaluated adaptation on **MediumHard** (obstacles).
+
+**Key Finding:** The agent demonstrates **Active Adaptation**.
+* On tasks where the initial policy failed (Reward 0.0), the "Fast Weights" (after 1 update) achieved near-perfect performance (Reward > 0.98).
+* This proves the agent learned a "Search Heuristic" rather than a fixed path.
+
+**Sample Evaluation Log (Iter 900):**
+```text
+Task Seed | Pre-Reward | Post-Reward | Delta
+----------------------------------------------
+1002      | 0.000      | 0.995       | +0.995  (SUCCESS: Adaptation)
+1009      | 0.000      | 0.986       | +0.986  (SUCCESS: Adaptation)
+1006      | 0.993      | 0.000       | -0.993  (FAILURE: Instability)
+```
+
 ---
+
 
 ## 3. Project Structure
 
 ```
 MERLIN/
-|- analysis_results/       # Generated histograms and metric reports
-|- checkpoints/            # Saved models (Last and Best)
+|- analysis_results/       # Generated histograms and adaptation plots
+|- checkpoints/            # Saved models (PPO and FOMAML)
 |- src/
 |  |- actor_critic.py     # Shared backbone (CNN & MLP)
-|  |- analyze_tasks.py    # Quantitative analysis pipeline (Wasserstein/KDE)
-|  |- config/             # Centralized environment configuration
-|  |- custom_envs/        # MiniGrid extensions (Easy, Medium, Hard, etc.)
-|  |- metrics/            # Mathematical metrics (KL, JSD, Wasserstein)
-|  |- ppo.py              # PPO Algorithm implementation
-|  |- train.py            # Main training loop with TensorBoard
-|  |- test.py             # Visualization and qualitative testing
-|- tb_logs/                # TensorBoard logs
+|  |- fomaml.py           # Meta-RL Implementation (Inner/Outer Loop logic)
+|  |- ppo.py              # Baseline Implementation
+|  |- scenario_creator/   # Environment & Task Sampling logic
+|  |- analyze_tasks.py    # PPO Distribution Shift Analysis
+|  |- evaluate_meta.py    # Meta-RL Adaptation Analysis
+|- train.py                # PPO Training Script
+|- train_fomaml.py         # Meta-RL Training Script
 |- README.md
 ```
-
 ---
 
 ## 4. Getting Started
@@ -109,13 +127,33 @@ uv run python train.py \
 
 ```
 
+### Meta-Training (FOMAML)
+Train the Meta-Learner to find an adaptable initialization.
+
+```bash
+uv run python train_fomaml.py \
+  --difficulty medium \
+  --iterations 2000 \
+  --seed 42 \
+  --device auto
+```
+
+### Meta-Evaluation
+Test how well the trained model adapts to unseen tasks (e.g., 20 new maps).
+
+```bash
+uv run python src/evaluate_meta.py \
+  --model_path checkpoints/fomaml/medium_seed42/fomaml_iter_2000.pth \
+  --difficulty medium \
+  --num_tasks 20
+```
+
 ### Monitoring (TensorBoard)
 
 Track Loss, Entropy, KL Divergence, and Reward curves in real-time.
 
 ```bash
 tensorboard --logdir tb_logs
-
 ```
 
 ### Evaluation (Qualitative)
@@ -145,7 +183,12 @@ uv run python -m src.analyze_tasks \
 
 ## 5. Future Roadmap
 
-* [x] **Phase 1: Baseline Stability** (Solved Checkpointing & Architecture)
-* [x] **Phase 2: Quantifying Failure** (Wasserstein Analysis Complete)
-* [ ] **Phase 3: Curriculum Learning** (Train on `MediumHard` to bridge the gap)
-* [ ] **Phase 4: Meta-RL Integration** (Implement Recurrent/Memory-based architectures to solve Hard/Hardest tasks via fast adaptation)
+* [x] Phase 1: Baseline Stability (Solved PPO Checkpointing & Architecture)
+
+* [x] Phase 2: Quantifying Failure (Proven Generalization Gap on Hard tasks)
+
+* [x] Phase 3: Meta-RL Implementation (FOMAML working with verified adaptation)
+
+* [ ] Phase 4: Robustness Tuning (Reduce negative adaptation delta via Lower Inner LR)
+
+* [ ] Phase 5: Hard Task Mastery (Scale Meta-RL to solve the Wall/Deceptive Reward problem)
