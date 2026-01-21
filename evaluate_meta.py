@@ -12,7 +12,7 @@ from src.scenario_creator.scenario_creator import ScenarioCreator
 from src.utils.utils import get_device, set_seed
 from src.fomaml import FOMAML  # Reuse your existing class logic
 
-def evaluate_episode(env, policy, device, max_steps=100):
+def evaluate_episode(env, policy, device, max_steps=100, deterministic = False):
     """
     Runs a deterministic evaluation episode (Argmax action).
     Returns: Total Reward
@@ -28,13 +28,13 @@ def evaluate_episode(env, policy, device, max_steps=100):
         # Convert Obs to Tensor
         obs_np = np.array(obs)
         if obs_np.ndim == 3: # H,W,C
-            obs_t = torch.tensor(obs_np, dtype=torch.float32, device=device).unsqueeze(0) / 255.0
+            obs_t = torch.tensor(obs_np, dtype=torch.float32, device=device).unsqueeze(0)
         else: # Flattened
             obs_t = torch.tensor(obs_np, dtype=torch.float32, device=device).view(1, -1) 
             
         with torch.no_grad():
-            # Deterministic = True for robust evaluation
-            action, _, _ = policy.act(obs_t, deterministic=True)
+            # Deterministic = True for for outer loop
+            action, _, _ = policy.act(obs_t, deterministic=deterministic)
             
         obs, reward, terminated, truncated, _ = env.step(action.item())
         total_reward += reward
@@ -59,7 +59,6 @@ def main():
     sc = ScenarioCreator("src/config/scenario.yaml")
 
     # Output Directory
-    # Extract Experiment Name from path (e.g., checkpoints/fomaml/medium_seed42/...)
     path_parts = args.model_path.split(os.sep)
     if len(path_parts) >= 3:
         exp_name = path_parts[-2] # medium_seed42
@@ -71,8 +70,6 @@ def main():
     print(f"[Meta-Eval] Saving results to: {out_dir}")
 
     # 2. Load FOMAML Helper
-    # We instantiate FOMAML just to reuse its helper methods (collect_trajectory, compute_loss)
-    # This ensures our evaluation update logic matches training 100%.
     fomaml_helper = FOMAML(
         sc, 
         lr_inner=args.lr_inner, 
@@ -103,7 +100,7 @@ def main():
         
         # Run Evaluation (Deterministic) using the Initialization (Theta)
         # Note: We must reset env manually here inside evaluate_episode
-        r_pre = evaluate_episode(env, fomaml_helper.meta_policy, device)
+        r_pre = evaluate_episode(env, fomaml_helper.meta_policy, device, False) 
         
         # --- B. Inner Loop Adaptation (One-Shot) ---
         # 1. Reset Env to same seed (Support Set)
@@ -132,9 +129,10 @@ def main():
         # Reset Env to same seed (Query Set - The Test)
         # Important: Env state is reset, but the *Map configuration* is identical.
         env.reset(seed=task_seed)
-        fast_policy.eval() # Switch to Deterministic Mode
-        
-        r_post = evaluate_episode(env, fast_policy, device)
+        fast_policy.eval() 
+
+        # Switch to Deterministic Mode
+        r_post = evaluate_episode(env, fast_policy, device, True)
         
         # Logging
         pre_update_rewards.append(r_pre)

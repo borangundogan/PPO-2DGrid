@@ -45,7 +45,6 @@ class FOMAML:
     def _obs_to_tensor(self, state):
         if self.use_cnn:
             state_t = torch.tensor(state, dtype=torch.float32, device=self.device).unsqueeze(0)
-            state_t = state_t / 255.0
         else:
             state_t = torch.tensor(state, dtype=torch.float32, device=self.device).view(1, -1)
         return state_t 
