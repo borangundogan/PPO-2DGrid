@@ -8,6 +8,7 @@ import gymnasium as gym
 from minigrid.wrappers import FullyObsWrapper, RGBImgPartialObsWrapper, ImgObsWrapper
 from gymnasium.wrappers import FlattenObservation
 
+from src.wrappers.stuck_penalty_wrapper import StuckPenaltyWrapper
 from src.wrappers.three_action_wrapper import ThreeActionWrapper
 import src.custom_envs.register
 
@@ -101,6 +102,11 @@ class ScenarioCreator:
         if flatten:
             env = FlattenObservation(env)
             # print("[ScenarioCreator] FlattenObservation enabled (MLP input).")
+            
+        # Penalize staying in the same position to encourage exploration.
+        # Useful for larger maps (16x16) where memoryless agents get stuck.
+        # Recommended penalty: -0.05 to -0.1
+        env = StuckPenaltyWrapper(env, penalty=-0.1)
 
         env = ThreeActionWrapper(env)
 
