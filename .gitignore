@@ -14,5 +14,6 @@ checkpoints/
 checkpoints_meta/
 
 .DS_Store
+.progress
 
 analysis_results/
