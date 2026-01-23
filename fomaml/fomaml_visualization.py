@@ -147,7 +147,7 @@ def main():
         # -------------------------------------------------
         print(">> Phase 1: Pre-Update (Zero-Shot Performance)")
         env_human = build_env_human(sc, args.difficulty, seed=task_seed)
-        run_visual_episode(env_human, meta_policy, device, title="Pre-Update", deterministic=False)
+        run_visual_episode(env_human, meta_policy, device, title="Pre-Update", deterministic=True)
         env_human.close()
 
         # B. ADAPTATION (Background Fast Learning)

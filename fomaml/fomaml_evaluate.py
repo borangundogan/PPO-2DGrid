@@ -2,7 +2,6 @@ import sys
 import os
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-
 import argparse
 import numpy as np
 import torch
@@ -14,9 +13,9 @@ from copy import deepcopy
 
 from src.scenario_creator.scenario_creator import ScenarioCreator
 from src.utils.utils import get_device, set_seed
-from src.fomaml import FOMAML  # Reuse your existing class logic
+from src.fomaml import FOMAML 
 
-def evaluate_episode(env, policy, device, max_steps=100, deterministic = False):
+def evaluate_episode(env, policy, device, max_steps=100, deterministic=False):
     """
     Runs a deterministic evaluation episode (Argmax action).
     Returns: Total Reward
@@ -37,7 +36,7 @@ def evaluate_episode(env, policy, device, max_steps=100, deterministic = False):
             obs_t = torch.tensor(obs_np, dtype=torch.float32, device=device).view(1, -1) 
             
         with torch.no_grad():
-            # Deterministic = True for for outer loop
+            # Deterministic = True for evaluation
             action, _, _ = policy.act(obs_t, deterministic=deterministic)
             
         obs, reward, terminated, truncated, _ = env.step(action.item())
@@ -51,8 +50,8 @@ def main():
     parser = argparse.ArgumentParser(description="Evaluate Meta-RL Adaptation (Pre vs Post)")
     parser.add_argument("--model_path", type=str, required=True, help="Path to .pth checkpoint")
     parser.add_argument("--difficulty", type=str, default="medium")
-    parser.add_argument("--num_tasks", type=int, default=20, help="Number of unique maps to test")
-    parser.add_argument("--k_support", type=int, default=50, help="Steps for adaptation (Inner Loop)")
+    parser.add_argument("--num_tasks", type=int, default=50, help="Number of unique maps to test")
+    parser.add_argument("--k_support", type=int, default=40, help="Steps for adaptation (Inner Loop)")
     parser.add_argument("--lr_inner", type=float, default=0.001, help="Inner loop learning rate")
     parser.add_argument("--seed", type=int, default=1000, help="Starting seed for evaluation")
     args = parser.parse_args()
@@ -95,53 +94,63 @@ def main():
     print(f"{'Task Seed':<10} | {'Pre-Reward':<12} | {'Post-Reward':<12} | {'Delta':<10}")
     print("-" * 50)
 
+    # SUCCESS THRESHOLD: If pre-reward is higher than this, we skip adaptation.
+    SUCCESS_THRESHOLD = 0.50 
+
     for i in range(args.num_tasks):
         task_seed = args.seed + i
         
         # --- A. Pre-Update Evaluation (Zero-Shot) ---
-        # Create env with specific seed
         env = sc.create_env(args.difficulty, seed=task_seed)
         
         # Run Evaluation (Deterministic) using the Initialization (Theta)
-        # Note: We must reset env manually here inside evaluate_episode
-        r_pre = evaluate_episode(env, fomaml_helper.meta_policy, device, deterministic=False) 
+        # Note: deterministic=True here to properly gauge "True Skill" before adapting
+        r_pre = evaluate_episode(env, fomaml_helper.meta_policy, device, deterministic=True) 
         
-        # --- B. Inner Loop Adaptation (One-Shot) ---
-        # 1. Reset Env to same seed (Support Set)
-        env.reset(seed=task_seed)
-        
-        # 2. Create Fast Weights (Theta')
-        fast_policy = deepcopy(fomaml_helper.meta_policy)
-        fast_policy.train() # Enable grad tracking for update
-        inner_optim = optim.SGD(fast_policy.parameters(), lr=args.lr_inner)
-        
-        # 3. Collect Support Trajectory (Stochastic Exploration)
-        # Reusing fomaml_helper.collect_trajectory logic
-        support_data = fomaml_helper.collect_trajectory(
-            env, 
-            fomaml_helper.meta_policy, 
-            steps=args.k_support
-        )
+        r_post = r_pre # Default assumption: No change if we skip update
 
-        total_support_reward = support_data["rew"].sum().item()
-        
-        if total_support_reward > 0.0:
-        # 4. Compute Loss & Update
-            loss = fomaml_helper.compute_loss(support_data, fast_policy)
-            inner_optim.zero_grad()
-            loss.backward()
-            torch.nn.utils.clip_grad_norm_(fast_policy.parameters(), max_norm=0.5)
-            inner_optim.step()
-        
-        
-        # --- C. Post-Update Evaluation (Few-Shot) ---
-        # Reset Env to same seed (Query Set - The Test)
-        # Important: Env state is reset, but the *Map configuration* is identical.
-        env.reset(seed=task_seed)
-        fast_policy.eval() 
+        # --- B. Inner Loop Adaptation (Conditional) ---
+        # SAFETY LOCK: If the agent already knows how to solve the task well (r_pre > Threshold),
+        if r_pre < SUCCESS_THRESHOLD:
+            
+            # 1. Reset Env to same seed (Support Set)
+            env.reset(seed=task_seed)
+            
+            # 2. Create Fast Weights (Theta')
+            fast_policy = deepcopy(fomaml_helper.meta_policy)
+            fast_policy.train() # Enable grad tracking for update
+            inner_optim = optim.SGD(fast_policy.parameters(), lr=args.lr_inner)
+            
+            # 3. Collect Support Trajectory (Stochastic Exploration)
+            support_data = fomaml_helper.collect_trajectory(
+                env, 
+                fomaml_helper.meta_policy, 
+                steps=args.k_support
+            )
 
-        # Switch to Deterministic Mode
-        r_post = evaluate_episode(env, fast_policy, device, deterministic=True)
+            total_support_reward = support_data["rew"].sum().item()
+            
+            # SECONDARY SAFETY: Only update if the support trajectory wasn't a total failure.
+            # (If the agent just banged into walls for 40 steps, updating on that data is harmful).
+            if total_support_reward > 0.0:
+                # 4. Compute Loss & Update
+                loss = fomaml_helper.compute_loss(support_data, fast_policy)
+                inner_optim.zero_grad()
+                loss.backward()
+                torch.nn.utils.clip_grad_norm_(fast_policy.parameters(), max_norm=0.5)
+                inner_optim.step()
+            
+            # --- C. Post-Update Evaluation (Few-Shot) ---
+            # Reset Env to same seed (Query Set - The Test)
+            env.reset(seed=task_seed)
+            fast_policy.eval() 
+
+            # Switch to Deterministic Mode
+            r_post = evaluate_episode(env, fast_policy, device, deterministic=True)
+        
+        else:
+            # If we skipped update, r_post remains equal to r_pre
+            pass
         
         # Logging
         pre_update_rewards.append(r_pre)
@@ -182,7 +191,7 @@ def main():
     
     plt.title(f"Average Performance Improvement (N={args.num_tasks})")
     plt.ylabel("Average Return")
-    plt.ylim(0, 1.1)
+    plt.ylim(-1.0, 1.1) # Adjusted ylim to handle negative starts
     
     # Add values on top
     for bar in bars:
