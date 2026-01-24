@@ -106,7 +106,7 @@ class ScenarioCreator:
         # Penalize staying in the same position to encourage exploration.
         # Useful for larger maps (16x16) where memoryless agents get stuck.
         # Recommended penalty: -0.05 to -0.1
-        env = StuckPenaltyWrapper(env, penalty=-0.1)
+        env = StuckPenaltyWrapper(env, max_stay=3, penalty=-0.1)
 
         env = ThreeActionWrapper(env)
 
