@@ -44,7 +44,7 @@ class FOMAML:
         self.gamma = 0.99
         self.lam = 0.95
         self.vf_coef = 0.5
-        self.ent_coef = 0.01
+        self.ent_coef = 0.02 # 0.01
         self.clip_eps = 0.2
         
     def _obs_to_tensor(self, state):
@@ -58,10 +58,12 @@ class FOMAML:
         obs_buf, act_buf, rew_buf, val_buf, logp_buf, done_buf = [], [], [], [], [], []
         
         episode_lens = []       
-        episode_rewards = []    
+        episode_rewards = []  
+        episode_stucks = []  
         
         current_len = 0         
         current_ep_rew = 0      
+        current_stuck_count = 0
 
         state, _ = env.reset()
         
@@ -72,11 +74,14 @@ class FOMAML:
                 # Exploration ON during training
                 action, logp, value = policy.act(state_t, deterministic=False)
             
-            next_state, reward, terminated, truncated, _ = env.step(action.item())
+            next_state, reward, terminated, truncated, info = env.step(action.item())
             done = terminated or truncated
             
             current_len += 1
             current_ep_rew += reward
+
+            if info.get("stuck", False):
+                current_stuck_count += 1
 
             obs_buf.append(state_t)
             act_buf.append(action)
@@ -90,9 +95,11 @@ class FOMAML:
             if done:
                 episode_lens.append(current_len)
                 episode_rewards.append(current_ep_rew)
+                episode_stucks.append(current_stuck_count)
                 
                 current_len = 0
                 current_ep_rew = 0
+                current_stuck_count = 0
                 state, _ = env.reset()
 
         last_state_t = self._obs_to_tensor(state)
@@ -108,7 +115,8 @@ class FOMAML:
             "done": torch.tensor(done_buf, dtype=torch.float32).to(self.device),
             "last_val": last_val,
             "ep_lens": episode_lens,      
-            "ep_rews": episode_rewards    
+            "ep_rews": episode_rewards,
+            "ep_stucks": episode_stucks
         }
 
     def compute_loss(self, batch, policy):
@@ -153,6 +161,7 @@ class FOMAML:
         
         all_query_lens = []   
         all_query_rews = []
+        all_query_stucks = []
 
         self.meta_optimizer.zero_grad()
         
@@ -183,6 +192,7 @@ class FOMAML:
             if len(query_data["ep_lens"]) > 0:
                 all_query_lens.extend(query_data["ep_lens"])
                 all_query_rews.extend(query_data["ep_rews"])
+                all_query_stucks.extend(query_data["ep_stucks"])
 
             # Compute Meta-Gradients
             query_loss = self.compute_loss(query_data, self.fast_policy)
@@ -211,8 +221,10 @@ class FOMAML:
         if len(all_query_rews) > 0:
             avg_rew = np.mean(all_query_rews)  
             avg_steps = np.mean(all_query_lens) 
+            avg_stuck_count = np.mean(all_query_stucks)
         else:
             avg_rew = 0.0
             avg_steps = float(k_query) 
+            avg_stuck_count = 0.0
 
-        return avg_loss, avg_rew, avg_steps
+        return avg_loss, avg_rew, avg_steps, avg_stuck_count
