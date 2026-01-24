@@ -47,8 +47,7 @@ class CNNFeatureExtractor(nn.Module):
             x = x.permute(0, 3, 1, 2)
         
         # Normalize to [0, 1] internally for safety
-        x = x / 255.0
-        
+        if x.max() > 1.0: x = x / 255.0
         return self.conv(x)
         
 # --- MLP Policy + Critic (Orthogonal Init Added) ---
