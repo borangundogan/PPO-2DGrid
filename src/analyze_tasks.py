@@ -1,8 +1,11 @@
 # src/analyze_tasks.py
 
 from __future__ import annotations
-import argparse
+import sys
 import os
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+
+import argparse
 from typing import Dict
 from datetime import datetime
 
