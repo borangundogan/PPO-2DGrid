@@ -47,7 +47,7 @@ class CNNFeatureExtractor(nn.Module):
             x = x.permute(0, 3, 1, 2)
         
         # Normalize to [0, 1] internally for safety
-        if x.max() > 1.0: x = x / 255.0
+        x = x.float() / 255.0
         return self.conv(x)
         
 # --- MLP Policy + Critic (Orthogonal Init Added) ---
@@ -83,7 +83,7 @@ class MLPActorCritic(nn.Module):
         """
         logits = self.actor(obs)
         dist = torch.distributions.Categorical(logits=logits)
-        
+
         if deterministic:
             action = torch.argmax(logits, dim=1) # Take the best action
         else:
@@ -111,7 +111,7 @@ class MLPActorCritic(nn.Module):
 class CNNActorCritic(nn.Module):
     def __init__(self, obs_shape, act_dim, hidden_dim=512):
         super().__init__()
-
+        self.act_dim = act_dim
         self.feature_extractor = CNNFeatureExtractor(obs_shape)
         feat_dim = self.feature_extractor.output_dim
 
@@ -132,15 +132,19 @@ class CNNActorCritic(nn.Module):
     def _extract(self, obs):
         return self.feature_extractor(obs)
 
-    def act(self, obs, deterministic=False):
+    def act(self, obs, deterministic=False, epsilon=0.2):
         features = self._extract(obs)
         logits = self.actor(features)
 
         dist = torch.distributions.Categorical(logits=logits)
         
         if deterministic:
-            action = torch.argmax(logits, dim=1) # Take the best action
-
+            # Epsilon-Greedy
+            if epsilon > 0.0 and torch.rand(1).item() < epsilon:
+                # e-explore
+                action = torch.randint(0, self.act_dim, size=(logits.shape[0],), device=logits.device)
+            else:
+                action = torch.argmax(logits, dim=1) 
         else:
             action = dist.sample()
 
