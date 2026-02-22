@@ -19,7 +19,6 @@ class FOMAML:
         self.device = torch.device(device)
         self.lr_inner = lr_inner
         
-        # Initialize Main Meta-Policy
         dummy_env = self.sc.create_env(difficulty, seed=42)
         sample_obs, _ = dummy_env.reset()
         act_dim = dummy_env.action_space.n
@@ -27,7 +26,6 @@ class FOMAML:
         if sample_obs.ndim == 1:
             self.use_cnn = False
             obs_dim = int(np.prod(sample_obs.shape))
-            print(obs_dim)
             self.meta_policy = MLPActorCritic(obs_dim, act_dim).to(self.device)
         else:
             self.use_cnn = True
@@ -40,12 +38,10 @@ class FOMAML:
         self.fast_policy.to(self.device)
         self.fast_policy.train()
 
-        # PPO Hyperparameters
         self.gamma = 0.99
         self.lam = 0.95
         self.vf_coef = 0.5
-        self.ent_coef = 0.02 # 0.01
-        self.clip_eps = 0.2
+        self.ent_coef = 0.2 
         
     def _obs_to_tensor(self, state):
         if self.use_cnn:
@@ -59,11 +55,9 @@ class FOMAML:
         
         episode_lens = []       
         episode_rewards = []  
-        episode_stucks = []  
         
         current_len = 0         
         current_ep_rew = 0      
-        current_stuck_count = 0
 
         state, _ = env.reset()
         
@@ -71,17 +65,13 @@ class FOMAML:
             state_t = self._obs_to_tensor(state)
             
             with torch.no_grad():
-                # Exploration ON during training
                 action, logp, value = policy.act(state_t, deterministic=False)
             
-            next_state, reward, terminated, truncated, info = env.step(action.item())
+            next_state, reward, terminated, truncated, _ = env.step(action.item())
             done = terminated or truncated
             
             current_len += 1
             current_ep_rew += reward
-
-            if info.get("stuck", False):
-                current_stuck_count += 1
 
             obs_buf.append(state_t)
             act_buf.append(action)
@@ -95,11 +85,9 @@ class FOMAML:
             if done:
                 episode_lens.append(current_len)
                 episode_rewards.append(current_ep_rew)
-                episode_stucks.append(current_stuck_count)
                 
                 current_len = 0
                 current_ep_rew = 0
-                current_stuck_count = 0
                 state, _ = env.reset()
 
         last_state_t = self._obs_to_tensor(state)
@@ -115,8 +103,7 @@ class FOMAML:
             "done": torch.tensor(done_buf, dtype=torch.float32).to(self.device),
             "last_val": last_val,
             "ep_lens": episode_lens,      
-            "ep_rews": episode_rewards,
-            "ep_stucks": episode_stucks
+            "ep_rews": episode_rewards
         }
 
     def compute_loss(self, batch, policy):
@@ -125,7 +112,6 @@ class FOMAML:
         dones = batch["done"].cpu().numpy()
         last_val = batch["last_val"].item()
         
-        # GAE Calculation
         adv = np.zeros_like(rews)
         gae = 0.0
         for t in reversed(range(len(rews))):
@@ -141,32 +127,21 @@ class FOMAML:
         
         new_logp, entropy, new_vals = policy.evaluate(batch["obs"], batch["act"])
         
-        # PPO Loss
-        ratio = torch.exp(new_logp - batch["logp"])
-        surr1 = ratio * adv_t
-        surr2 = torch.clamp(ratio, 1.0 - self.clip_eps, 1.0 + self.clip_eps) * adv_t
-        
-        pi_loss = -torch.min(surr1, surr2).mean()
+        pi_loss = -(new_logp * adv_t).mean()
         v_loss = ((new_vals - ret_t) ** 2).mean()
         
         total_loss = pi_loss + self.vf_coef * v_loss - self.ent_coef * entropy.mean()
         return total_loss
 
     def meta_train_step(self, task_seeds, k_support=50, k_query=50):
-        """
-        Executes one Meta-Training Step (Outer Loop).
-        Returns: (Average Loss, Average Reward, Average Steps)
-        """
         meta_loss_accum = 0.0
         
         all_query_lens = []   
         all_query_rews = []
-        all_query_stucks = []
 
         self.meta_optimizer.zero_grad()
         
         for seed in task_seeds:
-            # --- STEP 1: Support Set (Inner Loop) ---
             env = self.sc.create_env(self.difficulty, seed=seed)
             
             self.fast_policy.load_state_dict(self.meta_policy.state_dict())
@@ -174,7 +149,7 @@ class FOMAML:
 
             inner_optim = optim.SGD(self.fast_policy.parameters(), lr=self.lr_inner)            
             
-            support_data = self.collect_trajectory(env, self.meta_policy, steps=k_support)
+            support_data = self.collect_trajectory(env, self.fast_policy, steps=k_support)
             support_loss = self.compute_loss(support_data, self.fast_policy)
             
             inner_optim.zero_grad()
@@ -182,23 +157,19 @@ class FOMAML:
             torch.nn.utils.clip_grad_norm_(self.fast_policy.parameters(), max_norm=0.5)
             inner_optim.step()
             
-            # --- STEP 2: Query Set (Outer Evaluation) ---
             env.reset(seed=seed) 
             
-            # Use adapted policy (fast_policy)
             query_data = self.collect_trajectory(env, self.fast_policy, steps=k_query)
             
-            # Track Performance
             if len(query_data["ep_lens"]) > 0:
                 all_query_lens.extend(query_data["ep_lens"])
                 all_query_rews.extend(query_data["ep_rews"])
-                all_query_stucks.extend(query_data["ep_stucks"])
 
-            # Compute Meta-Gradients
             query_loss = self.compute_loss(query_data, self.fast_policy)
+            
+            inner_optim.zero_grad() 
             query_loss.backward()
             
-            # Transfer Gradients: Theta'.grad -> Theta.grad
             for param, meta_param in zip(self.fast_policy.parameters(), self.meta_policy.parameters()):
                 if meta_param.grad is None:
                     meta_param.grad = torch.zeros_like(meta_param)
@@ -208,7 +179,6 @@ class FOMAML:
             meta_loss_accum += query_loss.item()
             env.close()
 
-        # --- STEP 3: Meta-Update ---
         for param in self.meta_policy.parameters():
             if param.grad is not None:
                 param.grad.data.div_(len(task_seeds))
@@ -221,10 +191,8 @@ class FOMAML:
         if len(all_query_rews) > 0:
             avg_rew = np.mean(all_query_rews)  
             avg_steps = np.mean(all_query_lens) 
-            avg_stuck_count = np.mean(all_query_stucks)
         else:
             avg_rew = 0.0
             avg_steps = float(k_query) 
-            avg_stuck_count = 0.0
 
-        return avg_loss, avg_rew, avg_steps, avg_stuck_count
+        return avg_loss, avg_rew, avg_steps
