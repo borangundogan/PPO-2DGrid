@@ -2,7 +2,7 @@
 
 SEEDS=(42)
 
-DIFFICULTY="medium"
+DIFFICULTY="mediumhard"
 
 TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
 
@@ -16,7 +16,7 @@ for S in "${SEEDS[@]}"; do
     echo "----------------------------------"
     echo "Running PPO with seed = $S (Group: $TIMESTAMP)"
 
-    uv run python train.py \
+    uv run python ppo/train.py \
         --difficulty "$DIFFICULTY" \
         --seed "$S" \
         --total_steps 300000 \

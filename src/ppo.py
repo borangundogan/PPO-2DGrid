@@ -71,8 +71,6 @@ class PPO:
                 torch.tensor(state, dtype=torch.float32, device=self.device)
                 .view(1, -1)
             )
-        # MiniGrid obs are uint8 images; normalize to [0,1]
-        state_t = state_t / 255.0
         return state_t
 
     def collect_rollouts(self):

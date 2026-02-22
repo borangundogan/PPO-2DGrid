@@ -35,7 +35,7 @@ def parse_args():
     parser.add_argument("--batch_size", type=int, default=2048)
     parser.add_argument("--minibatch_size", type=int, default=256)
     parser.add_argument("--vf_coef", type=float, default=0.5)
-    parser.add_argument("--ent_coef", type=float, default=0.01)
+    parser.add_argument("--ent_coef", type=float, default=0.05)
     parser.add_argument("--total_steps", type=int, default=200_000)
     parser.add_argument("--save_interval", type=int, default=20_000)
     parser.add_argument("--eval_episodes", type=int, default=3)
@@ -53,7 +53,7 @@ def parse_args():
         "--difficulty",
         type=str,
         default="easy",
-        choices=["easy", "medium", "hard", "hardest"],
+        choices=["easy", "medium", "mediumhard", "hard", "hardest"],
         help="Environment difficulty level"
     )
     parser.add_argument("--seed", type=int, default=123, help="Random seed for training and envs")
@@ -82,9 +82,7 @@ def evaluate_policy(agent, env, episodes=3, seed=None):
                     obs_t = torch.tensor(obs, dtype=torch.float32,
                                          device=agent.device).view(1, -1)
 
-                obs_t = obs_t / 255.0  # Normalizasyon
-                action, _, _ = agent.ac.act(obs_t, deterministic=True)
-
+                action, _, _ = agent.ac.act(obs_t, deterministic=True) 
             obs, reward, terminated, truncated, _ = env.step(action.item())
             obs = np.array(obs, dtype=np.float32)
             total_reward += reward
@@ -145,9 +143,7 @@ def visualize_agent(agent, difficulty="easy", episodes=1):
                     obs_t = torch.tensor(obs, dtype=torch.float32,
                                          device=device).view(1, -1)
 
-                obs_t = obs_t / 255.0
                 action, _, _ = actor.act(obs_t, deterministic=True)
-
             obs, reward, terminated, truncated, _ = env.step(action.item())
             obs = np.array(obs, dtype=np.float32)
             total_reward += reward
