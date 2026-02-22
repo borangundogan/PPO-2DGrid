@@ -26,8 +26,8 @@ def get_device(device_str="cpu"):
             print(f"Device set to: {torch.cuda.get_device_name(0)} (cuda:0)")
             return torch.device("cuda:0")
         else:
-            print("Device set to: CPU")
-            return torch.device("cpu")
+            print("Device set to: MPS")
+            return torch.device("mps")
 
     if device_str.startswith("cuda"):
         if torch.cuda.is_available():
