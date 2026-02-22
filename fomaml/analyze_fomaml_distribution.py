@@ -10,7 +10,6 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import pandas as pd
 from copy import deepcopy
-from typing import Dict
 
 from src.scenario_creator.scenario_creator import ScenarioCreator
 from src.metrics.task_metrics import compare_two_feature_sets
@@ -20,59 +19,41 @@ from src.actor_critic import CNNActorCritic, MLPActorCritic
 
 from utils import evaluate_episode
 
-
-# --- CORE: Collect Meta-RL Rewards (With Safety Lock) ---
 def collect_meta_rewards(sc, difficulty, meta_policy, device, num_tasks=50, start_seed=1000, k_support=40, lr_inner=0.001):
     rewards = []
     
-    # Init Helper
     fomaml_helper = FOMAML(sc, device=device, difficulty=difficulty)
-    
-    SUCCESS_THRESHOLD = 0.60 # Safety Lock Threshold
 
     for i in range(num_tasks):
         task_seed = start_seed + i
         
-        # 1. Pre-Update Eval
         env = sc.create_env(difficulty, seed=task_seed)
         r_pre = evaluate_episode(env, meta_policy, device, deterministic=True)
         
-        final_reward = r_pre # Default assumption
+        env.reset(seed=task_seed)
         
-        # 2. Safety Lock Logic
-        if r_pre < SUCCESS_THRESHOLD:
-            # Need Adaptation!
-            env.reset(seed=task_seed)
+        fast_policy = deepcopy(meta_policy)
+        fast_policy.train()
+        inner_optim = optim.SGD(fast_policy.parameters(), lr=lr_inner)
+        
+        support_data = fomaml_helper.collect_trajectory(env, fast_policy, steps=k_support)
+        
+        if support_data["rew"].sum().item() > 0.0 or True:
+            loss = fomaml_helper.compute_loss(support_data, fast_policy)
+            inner_optim.zero_grad()
+            loss.backward()
+            torch.nn.utils.clip_grad_norm_(fast_policy.parameters(), max_norm=0.5)
+            inner_optim.step()
             
-            # Create Fast Weights
-            fast_policy = deepcopy(meta_policy)
-            fast_policy.train()
-            inner_optim = optim.SGD(fast_policy.parameters(), lr=lr_inner)
-            
-            # Collect Support Data (Stochastic)
-            support_data = fomaml_helper.collect_trajectory(env, meta_policy, steps=k_support)
-            
-            if support_data["rew"].sum().item() > 0.0:
-                loss = fomaml_helper.compute_loss(support_data, fast_policy)
-                inner_optim.zero_grad()
-                loss.backward()
-                torch.nn.utils.clip_grad_norm_(fast_policy.parameters(), max_norm=0.5)
-                inner_optim.step()
-                
-                # 3. Post-Update Eval
-                env.reset(seed=task_seed)
-                fast_policy.eval()
-                final_reward = evaluate_episode(env, fast_policy, device, deterministic=True)
-            else:
-                # Adaptation failed to find goal, keep Pre-Reward
-                pass
+        env.reset(seed=task_seed)
+        fast_policy.eval()
+        final_reward = evaluate_episode(env, fast_policy, device, deterministic=True)
         
         rewards.append(final_reward)
         env.close()
 
     return np.array(rewards)
 
-# --- PLOTTING FUNCTIONS ---
 def plot_reward_distribution(r1, r2, name1, name2, save_path):
     plt.figure(figsize=(10, 6))
     data_df = pd.concat([
@@ -95,7 +76,6 @@ def plot_reward_bars(reward_dict, save_path):
     stds = [np.std(reward_dict[t]) for t in tasks]
 
     plt.figure(figsize=(7, 5))
-    # Add dynamic colors based on number of tasks
     colors = sns.color_palette("husl", len(tasks))
     bars = plt.bar(tasks, means, yerr=stds, capsize=6, color=colors)
     plt.title("Mean Meta-Adapted Reward per Task")
@@ -124,7 +104,6 @@ def main():
     device = get_device("auto")
     sc = ScenarioCreator("src/config/scenario.yaml")
 
-    # Load Base Meta-Policy
     dummy_env = sc.create_env(args.difficulties[0], seed=42)
     obs_sample, _ = dummy_env.reset()
     act_dim = dummy_env.action_space.n
@@ -139,16 +118,13 @@ def main():
     meta_policy.load_state_dict(torch.load(args.model_path, map_location=device))
     meta_policy.eval()
 
-    # --- UPDATED OUTPUT DIR LOGIC ---
     norm_path = os.path.normpath(args.model_path)
     path_parts = norm_path.split(os.sep)
     
     if "checkpoints" in path_parts:
         try:
             idx = path_parts.index("checkpoints")
-            exp_name = path_parts[idx + 1] # e.g. MERLIN-Mediumhard...
-            # OLD: seed_name = path_parts[idx + 2] 
-            # NEW: Use the seed from arguments, not the training seed
+            exp_name = path_parts[idx + 1] 
             out_dir = os.path.join("analysis_results", exp_name, f"seed_{args.seed}")
         except IndexError:
              out_dir = os.path.join("analysis_results", "custom_analysis", f"seed_{args.seed}")
