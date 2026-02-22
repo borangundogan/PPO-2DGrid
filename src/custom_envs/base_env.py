@@ -14,7 +14,7 @@ class BaseCustomEnv(MiniGridEnv):
 
     def __init__(
         self,
-        size: int = 8, # can be 16x16 or 32x32
+        size: int = 16, # can be 16x16 or 32x32
         agent_start_pos=None,
         agent_start_dir: int = 0,
         max_steps: int | None = None,
@@ -36,7 +36,7 @@ class BaseCustomEnv(MiniGridEnv):
             mission_space=mission_space,
             grid_size=size,
             max_steps=max_steps,
-            see_through_walls=False,  # Enables efficient rendering  ---- FALSE!!!
+            see_through_walls=False, 
             **kwargs,
         )
 

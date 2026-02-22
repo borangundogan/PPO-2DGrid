@@ -31,8 +31,8 @@ class EasyEnv(BaseCustomEnv):
             self.place_agent()
 
         # Fixed goal position (bottom-right)
-        goal_x = width - 2
-        goal_y = height - 2
+        goal_x = width - 5
+        goal_y = height - 5
         self.put_obj(Goal(), goal_x, goal_y)
 
         # Mission text
