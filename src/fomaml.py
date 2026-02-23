@@ -9,8 +9,8 @@ class FOMAML:
     def __init__(
         self,
         scenario_creator, 
-        lr_inner=0.01,    
-        lr_outer=3e-4,    
+        lr_inner=0.01, # TODO 0.1    
+        lr_outer=0.001, # TODO it can be increase not too much 0.001 0.01    
         device="cpu",
         difficulty="medium"
     ):
@@ -105,7 +105,7 @@ class FOMAML:
             "ep_lens": episode_lens,      
             "ep_rews": episode_rewards
         }
-
+    # PPO for training
     def compute_loss(self, batch, policy):
         rews = batch["rew"].cpu().numpy()
         vals = batch["val"].cpu().numpy()
@@ -132,19 +132,27 @@ class FOMAML:
         
         total_loss = pi_loss + self.vf_coef * v_loss - self.ent_coef * entropy.mean()
         return total_loss
+    
+    # TODO
+    #  set the parameters of the models initial ones
+    # training
+    # take previous fast policy parameters with deepcopy store it for meta update 
+    # and then reset the model at the beginning of for loop 
+    # import copy
 
     def meta_train_step(self, task_seeds, k_support=50, k_query=50):
         meta_loss_accum = 0.0
-        
+
         all_query_lens = []   
         all_query_rews = []
 
         self.meta_optimizer.zero_grad()
+        meta_state_dict = deepcopy(self.meta_policy.state_dict())
         
         for seed in task_seeds:
             env = self.sc.create_env(self.difficulty, seed=seed)
             
-            self.fast_policy.load_state_dict(self.meta_policy.state_dict())
+            self.fast_policy.load_state_dict(meta_state_dict)
             self.fast_policy.train()
 
             inner_optim = optim.SGD(self.fast_policy.parameters(), lr=self.lr_inner)            
@@ -167,13 +175,13 @@ class FOMAML:
 
             query_loss = self.compute_loss(query_data, self.fast_policy)
             
-            inner_optim.zero_grad() 
+            self.fast_policy.zero_grad()
             query_loss.backward()
             
             for param, meta_param in zip(self.fast_policy.parameters(), self.meta_policy.parameters()):
-                if meta_param.grad is None:
-                    meta_param.grad = torch.zeros_like(meta_param)
                 if param.grad is not None:
+                    if meta_param.grad is None:
+                        meta_param.grad = torch.zeros_like(meta_param)
                     meta_param.grad.data.add_(param.grad.data)
                     
             meta_loss_accum += query_loss.item()

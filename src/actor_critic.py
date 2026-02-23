@@ -139,12 +139,7 @@ class CNNActorCritic(nn.Module):
         dist = torch.distributions.Categorical(logits=logits)
         
         if deterministic:
-            # Epsilon-Greedy
-            if epsilon > 0.0 and torch.rand(1).item() < epsilon:
-                # e-explore
-                action = torch.randint(0, self.act_dim, size=(logits.shape[0],), device=logits.device)
-            else:
-                action = torch.argmax(logits, dim=1) 
+            action = torch.argmax(logits, dim=1) 
         else:
             action = dist.sample()
 
@@ -163,3 +158,11 @@ class CNNActorCritic(nn.Module):
 
         value = self.critic(features).squeeze(-1)
         return logp, entropy, value
+    
+    """
+           # Epsilon-Greedy
+            if epsilon > 0.0 and torch.rand(1).item() < epsilon:
+                # e-explore
+                action = torch.randint(0, self.act_dim, size=(logits.shape[0],), device=logits.device)
+            else:
+    """
