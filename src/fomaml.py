@@ -9,8 +9,8 @@ class FOMAML:
     def __init__(
         self,
         scenario_creator, 
-        lr_inner=0.01, # TODO 0.1    
-        lr_outer=0.001, # TODO it can be increase not too much 0.001 0.01    
+        lr_inner=0.01,    
+        lr_outer=3e-4,    
         device="cpu",
         difficulty="medium"
     ):
@@ -38,10 +38,10 @@ class FOMAML:
         self.fast_policy.to(self.device)
         self.fast_policy.train()
 
-        self.gamma = 0.99
+        self.gamma = 0.995
         self.lam = 0.95
         self.vf_coef = 0.5
-        self.ent_coef = 0.2 
+        self.ent_coef = 0.05
         
     def _obs_to_tensor(self, state):
         if self.use_cnn:
@@ -50,7 +50,7 @@ class FOMAML:
             state_t = torch.tensor(state, dtype=torch.float32, device=self.device).view(1, -1)
         return state_t 
 
-    def collect_trajectory(self, env, policy, steps=20):
+    def collect_trajectory(self, env, policy, steps=20, task_seed=None):
         obs_buf, act_buf, rew_buf, val_buf, logp_buf, done_buf = [], [], [], [], [], []
         
         episode_lens = []       
@@ -59,7 +59,7 @@ class FOMAML:
         current_len = 0         
         current_ep_rew = 0      
 
-        state, _ = env.reset()
+        state, _ = env.reset(seed=task_seed)
         
         for _ in range(steps):
             state_t = self._obs_to_tensor(state)
@@ -88,7 +88,7 @@ class FOMAML:
                 
                 current_len = 0
                 current_ep_rew = 0
-                state, _ = env.reset()
+                state, _ = env.reset(seed=task_seed)
 
         last_state_t = self._obs_to_tensor(state)
         with torch.no_grad():
@@ -105,7 +105,8 @@ class FOMAML:
             "ep_lens": episode_lens,      
             "ep_rews": episode_rewards
         }
-    # PPO for training
+    
+    # TODO PPO for training
     def compute_loss(self, batch, policy):
         rews = batch["rew"].cpu().numpy()
         vals = batch["val"].cpu().numpy()
@@ -133,12 +134,6 @@ class FOMAML:
         total_loss = pi_loss + self.vf_coef * v_loss - self.ent_coef * entropy.mean()
         return total_loss
     
-    # TODO
-    #  set the parameters of the models initial ones
-    # training
-    # take previous fast policy parameters with deepcopy store it for meta update 
-    # and then reset the model at the beginning of for loop 
-    # import copy
 
     def meta_train_step(self, task_seeds, k_support=50, k_query=50):
         meta_loss_accum = 0.0
@@ -157,7 +152,7 @@ class FOMAML:
 
             inner_optim = optim.SGD(self.fast_policy.parameters(), lr=self.lr_inner)            
             
-            support_data = self.collect_trajectory(env, self.fast_policy, steps=k_support)
+            support_data = self.collect_trajectory(env, self.fast_policy, steps=k_support, task_seed=seed)
             support_loss = self.compute_loss(support_data, self.fast_policy)
             
             inner_optim.zero_grad()
@@ -167,7 +162,7 @@ class FOMAML:
             
             env.reset(seed=seed) 
             
-            query_data = self.collect_trajectory(env, self.fast_policy, steps=k_query)
+            query_data = self.collect_trajectory(env, self.fast_policy, steps=k_query, task_seed=seed)
             
             if len(query_data["ep_lens"]) > 0:
                 all_query_lens.extend(query_data["ep_lens"])
