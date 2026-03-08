@@ -1,40 +1,32 @@
-import numpy as np
 import torch
-import torch.nn as nn
 
-# Small container for rollouts 
 class RolloutBuffer:
-    def __init__(self):
-        self.states = []
-        self.actions = []
-        self.logprobs = []
-        self.rewards = []
-        self.state_values = []
-        self.is_terminals = []
-
-    def clear(self):
-        del self.states[:]
-        del self.actions[:]
-        del self.logprobs[:]
-        del self.rewards[:]
-        del self.state_values[:]
-        del self.is_terminals[:]
+    def __init__(self, buffer_size, obs_shape, device, is_discrete=True):
+        self.states = torch.zeros((buffer_size, *obs_shape), dtype=torch.float32, device=device)
+        self.actions = torch.zeros(buffer_size, dtype=torch.long if is_discrete else torch.float32, device=device)
+        self.logprobs = torch.zeros(buffer_size, dtype=torch.float32, device=device)
+        self.rewards = torch.zeros(buffer_size, dtype=torch.float32, device=device)
+        self.values = torch.zeros(buffer_size, dtype=torch.float32, device=device)
+        self.dones = torch.zeros(buffer_size, dtype=torch.float32, device=device)
+        self.max_size = buffer_size
+        self.ptr = 0
 
     def add(self, state, action, logprob, value, reward, done):
-        self.states.append(state)
-        self.actions.append(action)
-        self.logprobs.append(logprob)
-        self.state_values.append(value)
-        self.rewards.append(reward)
-        self.is_terminals.append(done)
+        self.states[self.ptr] = state
+        self.actions[self.ptr] = action
+        self.logprobs[self.ptr] = logprob
+        self.values[self.ptr] = value
+        self.rewards[self.ptr] = reward
+        self.dones[self.ptr] = done
+        self.ptr = (self.ptr + 1) % self.max_size
 
-    def to_tensors(self, device):
-        """Convert stored lists to torch tensors for PPO training."""
+    def get(self):
+        self.ptr = 0
         return (
-            torch.stack(self.states).to(device),
-            torch.tensor(self.actions, dtype=torch.long, device=device),
-            torch.tensor(self.logprobs, dtype=torch.float32, device=device),
-            torch.tensor(self.rewards, dtype=torch.float32, device=device),
-            torch.tensor(self.state_values, dtype=torch.float32, device=device),
-            torch.tensor(self.is_terminals, dtype=torch.float32, device=device),
+            self.states,
+            self.actions,
+            self.logprobs,
+            self.rewards,
+            self.values,
+            self.dones,
         )
