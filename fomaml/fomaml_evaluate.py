@@ -65,7 +65,7 @@ def main():
         
         env = sc.create_env(args.difficulty, seed=task_seed)
         
-        r_pre = evaluate_episode(env, fomaml_helper.meta_policy, device, deterministic=True) 
+        r_pre = evaluate_episode(env, fomaml_helper.meta_policy, device, deterministic=True, task_seed=task_seed) 
         
         env.reset(seed=task_seed)
         
@@ -76,7 +76,8 @@ def main():
         support_data = fomaml_helper.collect_trajectory(
             env, 
             fast_policy, 
-            steps=args.k_support
+            steps=args.k_support,
+            task_seed=task_seed
         )
 
         loss = fomaml_helper.compute_loss(support_data, fast_policy)
@@ -88,7 +89,7 @@ def main():
         env.reset(seed=task_seed)
         fast_policy.eval() 
 
-        r_post = evaluate_episode(env, fast_policy, device, deterministic=True)
+        r_post = evaluate_episode(env, fast_policy, device, deterministic=True, task_seed=task_seed)
         
         pre_update_rewards.append(r_pre)
         post_update_rewards.append(r_post)

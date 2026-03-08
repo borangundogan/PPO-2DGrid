@@ -28,7 +28,7 @@ def collect_meta_rewards(sc, difficulty, meta_policy, device, num_tasks=50, star
         task_seed = start_seed + i
         
         env = sc.create_env(difficulty, seed=task_seed)
-        r_pre = evaluate_episode(env, meta_policy, device, deterministic=True)
+        r_pre = evaluate_episode(env, meta_policy, device, deterministic=True,task_seed=task_seed)
         
         env.reset(seed=task_seed)
         
@@ -36,7 +36,7 @@ def collect_meta_rewards(sc, difficulty, meta_policy, device, num_tasks=50, star
         fast_policy.train()
         inner_optim = optim.SGD(fast_policy.parameters(), lr=lr_inner)
         
-        support_data = fomaml_helper.collect_trajectory(env, fast_policy, steps=k_support)
+        support_data = fomaml_helper.collect_trajectory(env, fast_policy, steps=k_support, task_seed=task_seed)
         
         if support_data["rew"].sum().item() > 0.0 or True:
             loss = fomaml_helper.compute_loss(support_data, fast_policy)
@@ -47,7 +47,7 @@ def collect_meta_rewards(sc, difficulty, meta_policy, device, num_tasks=50, star
             
         env.reset(seed=task_seed)
         fast_policy.eval()
-        final_reward = evaluate_episode(env, fast_policy, device, deterministic=True)
+        final_reward = evaluate_episode(env, fast_policy, device, deterministic=True, task_seed=task_seed)
         
         rewards.append(final_reward)
         env.close()

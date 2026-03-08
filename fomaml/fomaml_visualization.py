@@ -41,19 +41,13 @@ def build_env_human(sc_gen, difficulty, seed):
         env = FlattenObservation(env)
 
     env = ThreeActionWrapper(env)
-    
-    try:
-        env.reset(seed=seed)
-    except TypeError:
-        env.seed(seed)
-        env.reset()
         
     return env
 
-def run_visual_episode(env, policy, device, title="Episode", deterministic=False):
+def run_visual_episode(env, policy, device, title="Episode", deterministic=False, task_seed=None):
     print(f"--- {title} ---")
     
-    obs, _ = env.reset()
+    obs, _ = env.reset(seed=task_seed)
     
     done = False
     total_reward = 0
@@ -71,7 +65,7 @@ def run_visual_episode(env, policy, device, title="Episode", deterministic=False
             obs_t = torch.tensor(obs_np, dtype=torch.float32, device=device).view(1, -1)
 
         with torch.no_grad():
-            action, _, _ = policy.act(obs_t, deterministic=deterministic, epsilon=0.1)
+            action, _, _ = policy.act(obs_t, deterministic=deterministic)
 
         obs, reward, terminated, truncated, _ = env.step(action.item())
         total_reward += reward
@@ -123,7 +117,7 @@ def main():
 
         print(">> Phase 1: Pre-Update (Zero-Shot Performance)")
         env_human = build_env_human(sc, args.difficulty, seed=task_seed)
-        run_visual_episode(env_human, meta_policy, device, title="Pre-Update", deterministic=True)
+        run_visual_episode(env_human, meta_policy, device, title="Pre-Update", deterministic=True, task_seed=task_seed)
         env_human.close()
 
         print(">> Phase 2: Running Inner Loop Adaptation (Thinking...)")
@@ -135,7 +129,7 @@ def main():
         
         inner_optim = optim.SGD(fast_policy.parameters(), lr=args.lr_inner)
         
-        support_data = fomaml_helper.collect_trajectory(env_fast, fast_policy, steps=args.k_support)
+        support_data = fomaml_helper.collect_trajectory(env_fast, fast_policy, steps=args.k_support, task_seed=task_seed)
         
         loss = fomaml_helper.compute_loss(support_data, fast_policy)
         
@@ -152,7 +146,7 @@ def main():
         env_human = build_env_human(sc, args.difficulty, seed=task_seed)
         
         fast_policy.eval() 
-        run_visual_episode(env_human, fast_policy, device, title="Post-Update", deterministic=True)
+        run_visual_episode(env_human, fast_policy, device, title="Post-Update", deterministic=True, task_seed=task_seed)
         env_human.close()
 
 if __name__ == "__main__":
