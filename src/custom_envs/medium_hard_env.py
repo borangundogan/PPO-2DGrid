@@ -17,8 +17,8 @@ class MediumHardEnv(BaseCustomEnv):
             self.grid.wall_rect(0, 0, width, height)
 
             playable_area = (width - 2) * (height - 2)
-            min_obs = int(playable_area * 0.15)
-            max_obs = int(playable_area * 0.25)
+            min_obs = int(playable_area * 0.10)
+            max_obs = int(playable_area * 0.20)
             
             num_obstacles = self.np_random.integers(max(1, min_obs), max(1, max_obs) + 1)
 
