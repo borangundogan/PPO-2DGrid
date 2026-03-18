@@ -67,3 +67,7 @@ class ScenarioCreator:
 
     def get_observation_params(self) -> dict:
         return self.obs_cfg
+    
+    def get_env_size_str(self, difficulty: str) -> str:
+        size = self.config["difficulties"][difficulty].get("params", {}).get("size", 16)
+        return f"{size}x{size}"
