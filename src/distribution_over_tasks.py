@@ -77,59 +77,62 @@ def evaluate_zero_shot(env, policy, seed, use_cnn, device):
     obs_buf, act_buf, rew_buf, val_buf, logp_buf = [], [], [], [], []
 
     while not done:
-        obs_t = process_obs(obs, use_cnn, device)
+        current_obs = np.array(obs, copy=True, dtype=np.float32)
+        obs_t = process_obs(current_obs, use_cnn, device)
         with torch.no_grad():
             action, logp, value = policy.act(obs_t, deterministic=True)
         
         obs, reward, terminated, truncated, _ = env.step(action.item())
         done = terminated or truncated
         
-        obs_buf.append(obs_t.cpu())
-        act_buf.append(action.cpu())
+        obs_buf.append(current_obs)
+        act_buf.append(action.item())
         rew_buf.append(reward)
-        val_buf.append(value.cpu())
-        logp_buf.append(logp.cpu())
+        val_buf.append(value.item())
+        logp_buf.append(logp.item())
         
         total_reward += reward
         steps += 1
 
     with torch.no_grad():
-        last_obs_t = process_obs(obs, use_cnn, device)
-        _, _, last_val_tensor = policy.act(last_obs_t)
+        obs_t = process_obs(obs, use_cnn, device)
+        _, _, last_val_tensor = policy.act(obs_t)
         last_val = last_val_tensor.item()
         
-        rews = torch.tensor(rew_buf, dtype=torch.float32, device=device)
-        vals = torch.cat(val_buf).to(device)
-        
-        adv = torch.zeros(len(rews), dtype=torch.float32, device=device)
+        adv_list = []
         gae = 0.0
-        for t in reversed(range(len(rews))):
-            mask = 0.0 if t == len(rews) - 1 else 1.0
-            next_v = last_val if t == len(rews) - 1 else vals[t + 1].item()
-            delta = rews[t].item() + 0.995 * next_v * mask - vals[t].item()
+        for t in reversed(range(len(rew_buf))):
+            mask = 0.0 if t == len(rew_buf) - 1 else 1.0
+            next_v = last_val if t == len(rew_buf) - 1 else val_buf[t + 1]
+            delta = rew_buf[t] + 0.995 * next_v * mask - val_buf[t]
             gae = delta + 0.995 * 0.95 * mask * gae
-            adv[t] = gae
-
+            adv_list.append(gae)
+            
+        adv = torch.tensor(adv_list[::-1], dtype=torch.float32, device=device)
         if len(adv) > 1:
             adv = (adv - adv.mean()) / (adv.std() + 1e-8)
         else:
             adv = torch.zeros_like(adv)
 
+        vals = torch.tensor(val_buf, dtype=torch.float32, device=device)
         ret_t = vals + adv
         
-        obs_cat = torch.cat(obs_buf).to(device)
-        act_cat = torch.cat(act_buf).to(device)
+        obs_cat = torch.tensor(np.array(obs_buf), dtype=torch.float32, device=device)
+        if not use_cnn:
+            obs_cat = obs_cat.view(len(obs_buf), -1)
+        act_cat = torch.tensor(act_buf, dtype=torch.int64, device=device)
         
         new_logp, _, new_vals = policy.evaluate(obs_cat, act_cat)
         v_loss = ((new_vals - ret_t) ** 2).mean()
         loss = -new_logp.mean() + 0.5 * v_loss
         loss_val = loss.item()
 
-    del obs_buf, act_buf, rew_buf, val_buf, logp_buf, obs_cat, act_cat, rews, vals, adv, ret_t
     return total_reward, steps, loss_val
 
 def evaluate_few_shot(env, fast_policy, meta_policy, seed, use_cnn, device, lr_inner, k_support, adapt_steps):
-    fast_policy.load_state_dict(meta_policy.state_dict())
+    for param, target_param in zip(fast_policy.parameters(), meta_policy.parameters()):
+        param.data.copy_(target_param.data)
+        
     fast_policy.train()
     inner_optim = torch.optim.SGD(fast_policy.parameters(), lr=lr_inner)
 
@@ -138,53 +141,53 @@ def evaluate_few_shot(env, fast_policy, meta_policy, seed, use_cnn, device, lr_i
         obs_buf, act_buf, rew_buf, val_buf, logp_buf, done_buf = [], [], [], [], [], []
 
         for _ in range(k_support):
-            obs_t = process_obs(obs, use_cnn, device)
+            current_obs = np.array(obs, copy=True, dtype=np.float32)
+            obs_t = process_obs(current_obs, use_cnn, device)
             
             with torch.no_grad():
                 action, logp, value = fast_policy.act(obs_t, deterministic=False)
             
-            next_obs, reward, terminated, truncated, _ = env.step(action.item())
+            obs, reward, terminated, truncated, _ = env.step(action.item())
             done = terminated or truncated
 
-            obs_buf.append(obs_t.cpu())
-            act_buf.append(action.cpu())
+            obs_buf.append(current_obs)
+            act_buf.append(action.item())
             rew_buf.append(reward)
-            val_buf.append(value.cpu())
-            logp_buf.append(logp.cpu())
+            val_buf.append(value.item())
+            logp_buf.append(logp.item())
             done_buf.append(done)
 
-            obs = next_obs
             if done:
                 obs, _ = env.reset(seed=seed)
 
-        last_obs_t = process_obs(obs, use_cnn, device)
+        obs_t = process_obs(obs, use_cnn, device)
         with torch.no_grad():
-            _, _, last_val_tensor = fast_policy.act(last_obs_t)
+            _, _, last_val_tensor = fast_policy.act(obs_t)
             last_val = last_val_tensor.item()
 
-        rews = torch.tensor(rew_buf, dtype=torch.float32, device=device)
-        vals = torch.cat(val_buf).to(device)
-        dones = torch.tensor(done_buf, dtype=torch.float32, device=device)
-        
-        adv = torch.zeros(len(rews), dtype=torch.float32, device=device)
+        adv_list = []
         gae = 0.0
-        for t in reversed(range(len(rews))):
-            mask = 1.0 - dones[t].item()
-            next_v = last_val if t == len(rews) - 1 else vals[t + 1].item()
-            delta = rews[t].item() + 0.995 * next_v * mask - vals[t].item()
+        for t in reversed(range(len(rew_buf))):
+            mask = 1.0 - float(done_buf[t])
+            next_v = last_val if t == len(rew_buf) - 1 else val_buf[t + 1]
+            delta = rew_buf[t] + 0.995 * next_v * mask - val_buf[t]
             gae = delta + 0.995 * 0.95 * mask * gae
-            adv[t] = gae
+            adv_list.append(gae)
 
+        adv = torch.tensor(adv_list[::-1], dtype=torch.float32, device=device)
         if len(adv) > 1:
             adv = (adv - adv.mean()) / (adv.std() + 1e-8)
         else:
             adv = torch.zeros_like(adv)
 
+        vals = torch.tensor(val_buf, dtype=torch.float32, device=device)
         ret_t = (vals + adv).detach()
+        old_logp = torch.tensor(logp_buf, dtype=torch.float32, device=device)
 
-        obs_cat = torch.cat(obs_buf).to(device)
-        act_cat = torch.cat(act_buf).to(device)
-        old_logp = torch.cat(logp_buf).to(device).detach()
+        obs_cat = torch.tensor(np.array(obs_buf), dtype=torch.float32, device=device)
+        if not use_cnn:
+            obs_cat = obs_cat.view(len(obs_buf), -1)
+        act_cat = torch.tensor(act_buf, dtype=torch.int64, device=device)
 
         new_logp, entropy, new_vals = fast_policy.evaluate(obs_cat, act_cat)
         ratio = torch.exp(new_logp - old_logp)
@@ -199,13 +202,10 @@ def evaluate_few_shot(env, fast_policy, meta_policy, seed, use_cnn, device, lr_i
         torch.nn.utils.clip_grad_norm_(fast_policy.parameters(), max_norm=0.5)
         inner_optim.step()
 
-        del obs_buf, act_buf, rew_buf, val_buf, logp_buf, done_buf
-        del obs_cat, act_cat, rews, vals, dones, adv, ret_t, old_logp, new_logp, new_vals
-
     fast_policy.eval()
     result = evaluate_zero_shot(env, fast_policy, seed, use_cnn, device)
     
-    del inner_optim
+    fast_policy.zero_grad(set_to_none=True)
     return result
 
 def plot_histograms(ppo_data, fomaml_data, metric_name, out_path, total_tasks, title_suffix):
@@ -291,7 +291,6 @@ def main():
         fomaml_steps.append(fs)
         fomaml_losses.append(floss)
         
-        # Sızıntı zırhı: Her 10 görevde bir çöpleri boşalt
         if (i + 1) % 10 == 0:
             current_tasks = i + 1
             batch_elapsed = time.time() - batch_start_time
