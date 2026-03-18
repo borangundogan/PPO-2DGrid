@@ -1,8 +1,8 @@
 #!/bin/bash
 
-SEEDS=(11111)
+SEEDS=(777)
 
-DIFFICULTY="medium"
+DIFFICULTY="mediumhard"
 
 TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
 
@@ -19,7 +19,7 @@ for S in "${SEEDS[@]}"; do
     uv run python ppo/train.py \
         --difficulty "$DIFFICULTY" \
         --seed "$S" \
-        --total_steps 1000000 \
+        --total_steps 5000000 \
         --eval_episodes 5 \
         --group_timestamp "$TIMESTAMP"
 

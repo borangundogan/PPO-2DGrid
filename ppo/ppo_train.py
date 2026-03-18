@@ -42,6 +42,7 @@ def parse_args():
 
 def evaluate_policy(agent, env, episodes=3, seed=None):
     rewards = []
+    steps_list = []
     base_seed = seed if seed is not None else 0
     for ep in range(episodes):
         obs, _ = env.reset(seed=base_seed + ep)
@@ -50,6 +51,7 @@ def evaluate_policy(agent, env, episodes=3, seed=None):
             
         done = False
         total_reward = 0.0
+        steps = 0
 
         while not done:
             with torch.no_grad():
@@ -59,10 +61,12 @@ def evaluate_policy(agent, env, episodes=3, seed=None):
             if not isinstance(obs, np.ndarray):
                 obs = np.array(obs, dtype=np.float32)
             total_reward += reward
+            steps += 1
             done = terminated or truncated
 
         rewards.append(total_reward)
-    return rewards
+        steps_list.append(steps)
+    return rewards, steps_list
 
 def visualize_agent(agent, difficulty="easy", episodes=1):
     sc_gen = ScenarioCreator("src/config/scenario.yaml")
@@ -119,9 +123,11 @@ def train_minigrid(args):
         vf_coef=args.vf_coef, ent_coef=args.ent_coef, device=device
     )
     
-    env_id = sc_gen.config["difficulties"][args.difficulty]["env_id"]
+    env_id = sc_gen.get_env_id(args.difficulty)
+    grid_size_str = sc_gen.get_env_size_str(args.difficulty)
+    
     timestamp = args.group_timestamp if args.group_timestamp else datetime.now().strftime("%Y%m%d_%H%M%S")
-    experiment_name = f"{env_id}_{args.difficulty}_{timestamp}"
+    experiment_name = f"{env_id}_{grid_size_str}_{args.difficulty}_{timestamp}"
 
     ckpt_subdir = os.path.join(args.ckpt_dir, experiment_name, f"seed_{args.seed}")
     tb_dir = os.path.join("tb_logs", experiment_name, f"seed_{args.seed}")
@@ -141,8 +147,9 @@ def train_minigrid(args):
         update_stats = agent.update(last_value)
         step_count += agent.batch_size
 
-        eval_rewards = evaluate_policy(agent, eval_env, episodes=args.eval_episodes, seed=args.seed + 999)
+        eval_rewards, eval_steps = evaluate_policy(agent, eval_env, episodes=args.eval_episodes, seed=args.seed + 999)
         avg_r = np.mean(eval_rewards)
+        avg_s = np.mean(eval_steps)
 
         if avg_r > best_reward:
             best_reward = avg_r
@@ -172,8 +179,8 @@ def train_minigrid(args):
             elapsed_min = (time.time() - start_time) / 60
             total_loss = update_stats["pi_loss"] + update_stats["v_loss"]
             
-            print(f"[{step_count:>7}] R: {avg_r:.3f} | L: {total_loss:.4f} | pi: {update_stats['pi_loss']:.4f} | V: {update_stats['v_loss']:.4f} | Ent: {update_stats['entropy']:.4f} | KL: {update_stats['kl']:.6f} | T: {elapsed_min:.2f}m")
-
+            print(f"[{step_count:>7}] R: {avg_r:.3f} | L: {total_loss:.4f} | pi: {update_stats['pi_loss']:.4f} | V: {update_stats['v_loss']:.4f} | Ent: {update_stats['entropy']:.4f} | KL: {update_stats['kl']:.6f} | Steps: {avg_s:.1f} | T: {elapsed_min:.2f}m")
+            
             if len(agent.episode_returns) >= 10:
                 writer_tb.add_histogram("hist/episode_rewards", np.array(agent.episode_returns[-50:]), step_count)
                 writer_tb.add_histogram("hist/episode_lengths", np.array(agent.episode_lengths[-50:]), step_count)

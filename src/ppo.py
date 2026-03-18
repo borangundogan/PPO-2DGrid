@@ -125,12 +125,12 @@ class PPO:
         adv = (adv - adv.mean()) / (adv.std() + 1e-8)
 
         N = states.shape[0]
-        idxs = torch.randperm(N, device=self.device)
 
         total_pi = total_v = total_ent = total_kl = total_clip = total_gnorm = 0.0
         nbatches = 0
 
         for _ in range(self.update_epochs):
+            idxs = torch.randperm(N, device=self.device)
             for start in range(0, N, self.minibatch_size):
                 mb_idx = idxs[start : start + self.minibatch_size]
                 mb = lambda x: x[mb_idx]
