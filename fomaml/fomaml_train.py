@@ -22,8 +22,8 @@ def parse_args():
                         help="Total meta-training iterations")
     parser.add_argument("--tasks_per_batch", type=int, default=8,
                         help="Number of tasks (maps) to sample per meta-update")
-    parser.add_argument("--k_steps", type=int, default=100,
-                        help="Trajectory length")
+    parser.add_argument("--k_steps", type=int, default=256, 
+                        help="Trajectory length for Support and Query sets")
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--device", type=str, default="auto")
     
@@ -43,15 +43,10 @@ def train_fomaml():
     sc = ScenarioCreator("src/config/scenario.yaml")
     
     env_id = sc.get_env_id(args.difficulty)
-    grid_size_str = "UnknownSize"
-    parts = env_id.split('-')
-    for p in parts:
-        if 'x' in p and p[0].isdigit(): 
-            grid_size_str = p
-            break
+    grid_size_str = sc.get_env_size_str(args.difficulty)
             
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    project_name = f"MERLIN-{args.difficulty.capitalize()}-{grid_size_str}-v0_FOMAML_{timestamp}"
+    project_name = f"{env_id}_{grid_size_str}_{args.difficulty}_FOMAML_{timestamp}"
     ckpt_dir = os.path.join("checkpoints", project_name, f"seed_{args.seed}")
     os.makedirs(ckpt_dir, exist_ok=True)
     
@@ -119,7 +114,7 @@ def train_fomaml():
             fig_map.canvas.draw()
             fig_map.canvas.flush_events()
 
-        loss, avg_reward, steps = fomaml.meta_train_step(
+        loss, avg_reward, steps, stats = fomaml.meta_train_step(
             task_seeds, 
             k_support=args.k_steps, 
             k_query=args.k_steps
@@ -138,7 +133,7 @@ def train_fomaml():
         
         if itr % 10 == 0:
             elapsed = (time.time() - start_time) / 60
-            print(f"Iter {itr:>4} | Loss: {loss:.4f} | Rew: {avg_reward:.4f} | Steps: {steps:.1f} | Best: {best_meta_reward:.4f} | Time: {elapsed:.1f}m")
+            print(f"Iter {itr:>4} | R: {avg_reward:.3f} | L: {loss:.4f} | pi: {stats['pi_loss']:.4f} | V: {stats['v_loss']:.4f} | Ent: {stats['entropy']:.4f} | KL: {stats['kl']:.6f} | Steps: {steps:.1f} | Best: {best_meta_reward:.4f} | T: {elapsed:.1f}m")
             
         if itr % 100 == 0: 
             save_path = os.path.join(ckpt_dir, f"fomaml_iter_{itr}.pth")

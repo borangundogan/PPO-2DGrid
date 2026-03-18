@@ -42,6 +42,7 @@ class FOMAML:
         self.lam = 0.95
         self.vf_coef = 0.5
         self.ent_coef = 0.05
+        self.clip_eps = 0.2
         
     def _obs_to_tensor(self, state):
         if self.use_cnn:
@@ -106,7 +107,6 @@ class FOMAML:
             "ep_rews": episode_rewards
         }
     
-    # TODO PPO for training
     def compute_loss(self, batch, policy):
         rews = batch["rew"].cpu().numpy()
         vals = batch["val"].cpu().numpy()
@@ -128,13 +128,33 @@ class FOMAML:
         
         new_logp, entropy, new_vals = policy.evaluate(batch["obs"], batch["act"])
         
-        pi_loss = -(new_logp * adv_t).mean()
+        old_logp = batch["logp"].detach()
+        ratio = torch.exp(new_logp - old_logp)
+        
+        surr1 = ratio * adv_t
+        surr2 = torch.clamp(ratio, 1.0 - self.clip_eps, 1.0 + self.clip_eps) * adv_t
+        
+        pi_loss = -torch.min(surr1, surr2).mean()
         v_loss = ((new_vals - ret_t) ** 2).mean()
         
+        # Diagnostics
+        with torch.no_grad():
+            approx_kl = (old_logp - new_logp).mean().item()
+            clipfrac = (torch.abs(ratio - 1.0) > self.clip_eps).float().mean().item()
+        
         total_loss = pi_loss + self.vf_coef * v_loss - self.ent_coef * entropy.mean()
-        return total_loss
+        
+        stats = {
+            "loss": total_loss,
+            "pi_loss": pi_loss.item(),
+            "v_loss": v_loss.item(),
+            "entropy": entropy.mean().item(),
+            "kl": approx_kl,
+            "clipfrac": clipfrac
+        }
+        
+        return total_loss, stats
     
-
     def meta_train_step(self, task_seeds, k_support=50, k_query=50):
         meta_loss_accum = 0.0
 
@@ -152,8 +172,9 @@ class FOMAML:
 
             inner_optim = optim.SGD(self.fast_policy.parameters(), lr=self.lr_inner)            
             
+            # Inner Loop
             support_data = self.collect_trajectory(env, self.fast_policy, steps=k_support, task_seed=seed)
-            support_loss = self.compute_loss(support_data, self.fast_policy)
+            support_loss, _ = self.compute_loss(support_data, self.fast_policy) # SADECE BU SATIRI GÜNCELLE
             
             inner_optim.zero_grad()
             support_loss.backward()
@@ -162,13 +183,14 @@ class FOMAML:
             
             env.reset(seed=seed) 
             
+            # Outer-loop
             query_data = self.collect_trajectory(env, self.fast_policy, steps=k_query, task_seed=seed)
             
             if len(query_data["ep_lens"]) > 0:
                 all_query_lens.extend(query_data["ep_lens"])
                 all_query_rews.extend(query_data["ep_rews"])
 
-            query_loss = self.compute_loss(query_data, self.fast_policy)
+            query_loss, query_stats = self.compute_loss(query_data, self.fast_policy) 
             
             self.fast_policy.zero_grad()
             query_loss.backward()
@@ -198,4 +220,4 @@ class FOMAML:
             avg_rew = 0.0
             avg_steps = float(k_query) 
 
-        return avg_loss, avg_rew, avg_steps
+        return avg_loss, avg_rew, avg_steps, query_stats

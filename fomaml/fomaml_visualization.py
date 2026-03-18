@@ -103,7 +103,25 @@ def main():
         meta_policy = MLPActorCritic(int(np.prod(np.array(obs_sample).shape)), act_dim).to(device)
     
     print(f"[Visualizer] Loading model: {args.model_path}")
-    meta_policy.load_state_dict(torch.load(args.model_path, map_location=device))
+    
+    old_state_dict = torch.load(args.model_path, map_location=device, weights_only=True)
+    adapted_dict = {}
+    
+    for key, value in old_state_dict.items():
+        if key.startswith("feature_extractor.conv."):
+            # Eski ortak CNN ağırlıklarını, yeni ayrıştırılmış CNN'lere kopyala
+            suffix = key.replace("feature_extractor.conv.", "")
+            adapted_dict[f"actor_extractor.network.{suffix}"] = value.clone()
+            adapted_dict[f"critic_extractor.network.{suffix}"] = value.clone()
+        elif key.startswith("feature_extractor.network."):
+            # İsimlendirme varyasyonu ihtimaline karşı
+            suffix = key.replace("feature_extractor.network.", "")
+            adapted_dict[f"actor_extractor.network.{suffix}"] = value.clone()
+            adapted_dict[f"critic_extractor.network.{suffix}"] = value.clone()
+        else:
+            adapted_dict[key] = value
+
+    meta_policy.load_state_dict(adapted_dict)
     meta_policy.eval()
 
     fomaml_helper = FOMAML(sc, device=device, difficulty=args.difficulty)
