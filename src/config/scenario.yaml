@@ -4,26 +4,31 @@ observation:
 
 difficulties:
   easy:
-    env_id: MERLIN-Easy-16x16-v0
+    env_id: MERLIN-Easy-v0
     params:
       render_mode: rgb_array
+      size: 16
 
   medium:
-    env_id: MERLIN-Medium-16x16-v0
+    env_id: MERLIN-Medium-v0
     params:
       render_mode: rgb_array
+      size: 16
 
   mediumhard:
-    env_id: MERLIN-MediumHard-16x16-v0
+    env_id: MERLIN-MediumHard-v0
     params:
       render_mode: rgb_array
+      size: 16
 
   hard:
-    env_id: MERLIN-Hard-16x16-v0
+    env_id: MERLIN-Hard-v0
     params:
       render_mode: rgb_array
+      size: 16
 
   hardest:
-    env_id: MERLIN-Hardest-16x16-v0
+    env_id: MERLIN-Hardest-v0
     params:
       render_mode: rgb_array
+      size: 16
